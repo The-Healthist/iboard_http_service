@@ -1,25 +1,61 @@
+# 指定 Docker Compose 文件版本
 version: '3'
 services:
+  # 应用服务配置
   app:
+    # 使用当前目录的 Dockerfile 构建镜像
     build: .
+    # 端口映射，将容器的 8080 端口映射到主机的 8080 端口
     ports:
-      - "8080:8080"
+      - "8180:8180"
+    # 声明依赖关系，确保 db 服务先启动
     depends_on:
       - db
+    # 设置环境变量，用于应用程序连接数据库
     environment:
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_USER=root
-      - DB_PASSWORD=password
-      - DB_NAME=myapp
+      - DB_HOST=db          # 数据库主机名
+      - DB_PORT=3306        # 数据库端口
+      - DB_USER=root        # 数据库用户名
+      - DB_PASSWORD=healthist # 数据库密码
+      - DB_NAME=iboard_db   # 数据库名称
+    # 将服务加入自定义网络
+    networks:
+      - iboard-network
 
+  # MySQL 数据库服务配置
   db:
+    # 使用 MySQL 8.0 官方镜像
     image: mysql:8.0
+    # 端口映射，将容器的 3307 端口映射到主机的 3306 端口
+    ports:
+      - "3308:3306"
+    # MySQL 环境变量配置
     environment:
-      - MYSQL_ROOT_PASSWORD=password
-      - MYSQL_DATABASE=myapp
+      MYSQL_ROOT_PASSWORD: admin123
+      MYSQL_DATABASE: iboard_db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: admin123
+    # 数据持久化配置
     volumes:
-      - db_data:/var/lib/mysql
+      - db_data:/var/lib/mysql  # 数据库文件持久化存储
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # 初始化SQL脚本
+    # MySQL 认证插件配置
+    command: --default-authentication-plugin=mysql_native_password
+    # 将服务加入自定义网络
+    networks:
+      - iboard-network
+    # 健康检查配置
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]  # 检查命令
+      interval: 10s    # 检查间隔
+      timeout: 5s      # 超时时间
+      retries: 5       # 重试次数
 
+# 自定义网络配置
+networks:
+  iboard-network:
+    driver: bridge    # 使用 bridge 网络驱动
+
+# 数据卷配置
 volumes:
-  db_data: 
+  db_data:           # 定义数据卷，用于持久化存储数据库数据

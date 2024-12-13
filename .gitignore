@@ -29,3 +29,9 @@ vendor/
 
 # Upload files
 uploads/ 
+
+# Database
+.env.db
+
+# Package
+pkg/
