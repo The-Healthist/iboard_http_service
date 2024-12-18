@@ -88,7 +88,7 @@ func RegisterSuperAdminView(r *gin.RouterGroup) {
 	r.POST("/login", Login)
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/create", CreateSuperAdmin)
+		r.POST("/add", CreateSuperAdmin)
 		r.GET("/get", GetSuperAdmins)
 		r.DELETE("/delete", DeleteSuperAdmin)
 		r.POST("/reset_password", ResetPassword) //dont use

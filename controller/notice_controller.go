@@ -7,34 +7,36 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type InterfaceBuildingController interface {
+type InterfaceNoticeController interface {
 	Create()
 	Get()
 	Update()
 	Delete()
 }
 
-type BuildingController struct {
+type NoticeController struct {
 	ctx     *gin.Context
-	service services.InterfaceBuildingService
+	service services.InterfaceNoticeService
 }
 
-func NewBuildingController(
+func NewNoticeController(
 	ctx *gin.Context,
-	service services.InterfaceBuildingService,
-) InterfaceBuildingController {
-	return &BuildingController{
+	service services.InterfaceNoticeService,
+) InterfaceNoticeController {
+	return &NoticeController{
 		ctx:     ctx,
 		service: service,
 	}
 }
 
-func (c *BuildingController) Create() {
+func (c *NoticeController) Create() {
 	var form struct {
-		Name     string `json:"name" binding:"required"`
-		IsmartID string `json:"ismartId"`
-		Password string `json:"password"`
-		Remark   string `json:"remark"`
+		Title       string `json:"title" binding:"required"`
+		Description string `json:"description"`
+		Type        string `json:"type"`
+		FileID      uint   `json:"fileId"`
+		Field       string `json:"field"`
+		BuildingIDs []uint `json:"buildingIds"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
@@ -45,30 +47,32 @@ func (c *BuildingController) Create() {
 		return
 	}
 
-	building := &models.Building{
-		Name:     form.Name,
-		IsmartID: form.IsmartID,
-		Password: form.Password,
-		Remark:   form.Remark,
+	notice := &models.Notice{
+		Title:       form.Title,
+		Description: form.Description,
+		Type:        form.Type,
+		FileID:      form.FileID,
+		Field:       form.Field,
 	}
 
-	if err := c.service.Create(building); err != nil {
+	if err := c.service.Create(notice, form.BuildingIDs); err != nil {
 		c.ctx.JSON(400, gin.H{
 			"error":   err.Error(),
-			"message": "create building failed",
+			"message": "create notice failed",
 		})
 		return
 	}
 
 	c.ctx.JSON(200, gin.H{
-		"message": "create building success",
-		"data":    building,
+		"message": "create notice success",
+		"data":    notice,
 	})
 }
 
-func (c *BuildingController) Get() {
+func (c *NoticeController) Get() {
 	var searchQuery struct {
 		Search string `form:"search"`
+		Type   string `form:"type"`
 	}
 	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
@@ -82,7 +86,7 @@ func (c *BuildingController) Get() {
 	}{
 		PageSize: 10,
 		PageNum:  1,
-		Desc:     false,
+		Desc:     true,
 	}
 
 	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
@@ -97,24 +101,27 @@ func (c *BuildingController) Get() {
 		"desc":     pagination.Desc,
 	}
 
-	buildings, paginationResult, err := c.service.Get(queryMap, paginationMap)
+	notices, paginationResult, err := c.service.Get(queryMap, paginationMap)
 	if err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.ctx.JSON(200, gin.H{
-		"data":       buildings,
+		"data":       notices,
 		"pagination": paginationResult,
 	})
 }
 
-func (c *BuildingController) Update() {
+func (c *NoticeController) Update() {
 	var form struct {
 		ID          uint   `json:"id" binding:"required"`
-		Name        string `json:"name"`
-		Address     string `json:"address"`
+		Title       string `json:"title"`
 		Description string `json:"description"`
+		Type        string `json:"type"`
+		FileID      uint   `json:"fileId"`
+		Field       string `json:"field"`
+		BuildingIDs []uint `json:"buildingIds"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
@@ -123,25 +130,31 @@ func (c *BuildingController) Update() {
 	}
 
 	updates := map[string]interface{}{}
-	if form.Name != "" {
-		updates["name"] = form.Name
-	}
-	if form.Address != "" {
-		updates["address"] = form.Address
+	if form.Title != "" {
+		updates["title"] = form.Title
 	}
 	if form.Description != "" {
 		updates["description"] = form.Description
 	}
+	if form.Type != "" {
+		updates["type"] = form.Type
+	}
+	if form.FileID != 0 {
+		updates["file_id"] = form.FileID
+	}
+	if form.Field != "" {
+		updates["field"] = form.Field
+	}
 
-	if err := c.service.Update(form.ID, updates); err != nil {
+	if err := c.service.Update(form.ID, updates, form.BuildingIDs); err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "update building success"})
+	c.ctx.JSON(200, gin.H{"message": "update notice success"})
 }
 
-func (c *BuildingController) Delete() {
+func (c *NoticeController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
@@ -155,5 +168,5 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete building success"})
+	c.ctx.JSON(200, gin.H{"message": "delete notice success"})
 }

@@ -3,6 +3,7 @@ package models
 // Building 建筑模型
 type Building struct {
 	ModelFields
+	BuildingID     string          `json:"buildingId"     gorm:"size:255;not null;index"`
 	Name           string          `json:"name"         gorm:"size:255;not null;index"`
 	IsmartID       string          `json:"ismartId"     gorm:"size:255;index"`
 	Password       string          `json:"password"     gorm:"size:255"`

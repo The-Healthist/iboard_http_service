@@ -81,6 +81,7 @@ func (c *SuperAdminController) Login() {
 	})
 }
 
+// 2.get super admins
 func (c *SuperAdminController) GetSuperAdmins() {
 	var searchQuery struct {
 		Search string `form:"search"`
@@ -124,6 +125,7 @@ func (c *SuperAdminController) GetSuperAdmins() {
 	})
 }
 
+// 3.create super admin
 func (c *SuperAdminController) CreateSuperAdmin() {
 	var form struct {
 		Email    string `json:"email" binding:"required"`
@@ -158,6 +160,7 @@ func (c *SuperAdminController) CreateSuperAdmin() {
 	})
 }
 
+// 4.delete super admin
 func (c *SuperAdminController) DeleteSuperAdmin() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
@@ -219,10 +222,10 @@ func (c *SuperAdminController) ResetPassword() {
 	c.ctx.JSON(200, gin.H{"message": "reset password success"})
 }
 
+// 5.change password
 func (c *SuperAdminController) ChangePassword() {
 	var form struct {
 		ID          uint   `json:"id" binding:"required"`
-		OldPassword string `json:"oldPassword" binding:"required"`
 		NewPassword string `json:"newPassword" binding:"required"`
 	}
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
@@ -238,19 +241,6 @@ func (c *SuperAdminController) ChangePassword() {
 		return
 	}
 
-	// 验证旧密码
-	if err := bcrypt.CompareHashAndPassword(
-		[]byte(admin.Password),
-		[]byte(form.OldPassword),
-	); err != nil {
-		c.ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "old password is incorrect",
-		})
-		return
-	}
-
-	// 生成新密码的哈希值
 	hashPassword, err := bcrypt.GenerateFromPassword([]byte(form.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		c.ctx.JSON(500, gin.H{
@@ -260,13 +250,12 @@ func (c *SuperAdminController) ChangePassword() {
 		return
 	}
 
-	// 更新密码
 	if err := c.service.UpdateSuperAdmin(admin, map[string]interface{}{
 		"password": string(hashPassword),
 	}); err != nil {
 		c.ctx.JSON(500, gin.H{
 			"error":   err.Error(),
-			"message": "更新密码失败",
+			"message": "update password failed",
 		})
 		return
 	}
