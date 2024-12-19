@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/The-Healthist/iboard_http_service/models"
+	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -39,13 +39,13 @@ func InitDB(host, user, password, port, dbname string) *gorm.DB {
 
 	// 添加自动迁移
 	if err := DB_CONN.AutoMigrate(
-		&models.SuperAdmin{},
-		&models.BuildingAdmin{},
-		&models.Building{},
-		&models.Advertisement{},
-		&models.Permission{},
-		&models.Notice{},
-		&models.File{},
+		&base_models.SuperAdmin{},
+		&base_models.BuildingAdmin{},
+		&base_models.Building{},
+		&base_models.Advertisement{},
+		&base_models.Permission{},
+		&base_models.Notice{},
+		&base_models.File{},
 	); err != nil {
 		log.Printf("Failed to auto migrate: %v\n", err)
 		return nil
@@ -60,13 +60,13 @@ func AutoMigrate(db *gorm.DB) error {
 
 	// 在这里添加所有需要迁移的模型
 	err := db.AutoMigrate(
-		&models.SuperAdmin{},
-		&models.BuildingAdmin{},
-		&models.Building{},
-		&models.Advertisement{},
-		&models.Permission{},
-		&models.Notice{},
-		&models.File{},
+		&base_models.SuperAdmin{},
+		&base_models.BuildingAdmin{},
+		&base_models.Building{},
+		&base_models.Advertisement{},
+		&base_models.Permission{},
+		&base_models.Notice{},
+		&base_models.File{},
 	)
 
 	if err != nil {

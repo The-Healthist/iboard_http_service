@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/The-Healthist/iboard_http_service/services"
+	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 )
@@ -30,7 +30,7 @@ func AuthorizeJWTAdmin() gin.HandlerFunc {
 
 		// 提取 token
 		tokenString := extractToken(authHeader)
-		token, err := services.NewJWTService().ValidateToken(tokenString)
+		token, err := base_services.NewJWTService().ValidateToken(tokenString)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"message": err.Error(),
@@ -71,7 +71,7 @@ func AuthorizeJWTStaff() gin.HandlerFunc {
 
 		// 提取 token
 		tokenString := extractToken(authHeader)
-		token, err := services.NewJWTService().ValidateToken(tokenString)
+		token, err := base_services.NewJWTService().ValidateToken(tokenString)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"message": err.Error(),

@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	databases "github.com/The-Healthist/iboard_http_service/database"
-	"github.com/The-Healthist/iboard_http_service/models"
+	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"github.com/The-Healthist/iboard_http_service/router"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/gin-gonic/gin"
@@ -19,7 +19,7 @@ import (
 )
 
 func initSuperAdmin(db *gorm.DB) error {
-	var admin models.SuperAdmin
+	var admin base_models.SuperAdmin
 
 	// 检查是否已存在管理员
 	result := db.Where("email = ?", "admin@example.com").First(&admin)
@@ -38,7 +38,7 @@ func initSuperAdmin(db *gorm.DB) error {
 	}
 
 	// 创建默认管理员
-	newAdmin := models.SuperAdmin{
+	newAdmin := base_models.SuperAdmin{
 		Email:    "admin@example.com",
 		Password: string(hashedPassword),
 	}
