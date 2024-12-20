@@ -56,9 +56,9 @@ func DeleteBuildingAdmin(ctx *gin.Context) {
 func RegisterBuildingAdminView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/add", CreateBuildingAdmin)
-		r.GET("/get", GetBuildingAdmins)
-		r.PUT("/update", UpdateBuildingAdmin)
-		r.DELETE("/delete", DeleteBuildingAdmin)
+		r.POST("/building_admin", CreateBuildingAdmin)
+		r.GET("/building_admin", GetBuildingAdmins)
+		r.PUT("/building_admin", UpdateBuildingAdmin)
+		r.DELETE("/building_admin", DeleteBuildingAdmin)
 	}
 }

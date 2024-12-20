@@ -11,7 +11,10 @@ require (
 	gorm.io/gorm v1.25.12
 )
 
-require github.com/rogpeppe/go-internal v1.11.0 // indirect
+require (
+	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
+	github.com/rogpeppe/go-internal v1.11.0 // indirect
+)
 
 require (
 	github.com/bytedance/sonic v1.12.6 // indirect

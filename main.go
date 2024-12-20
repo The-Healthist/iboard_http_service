@@ -83,9 +83,13 @@ func main() {
 		log.Printf("Failed to initialize super admin: %v\n", err)
 	}
 
-	r := gin.Default()
-	router.RegisterRoute(r)
+	// 设置 GIN 的日志模式
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Logger())
+	r.Use(gin.Recovery())
 
+	router.RegisterRoute(r)
 	// 启动服务器
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)

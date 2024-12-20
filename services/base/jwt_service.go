@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -15,19 +16,18 @@ type AuthClaims struct {
 }
 
 type IJWTService interface {
-	GenerateToken(email string, isAdmin bool) string
-	ValidateToken(encodedToken string) (*jwt.Token, error)
+	GenerateToken(claims jwt.MapClaims) (string, error)
+	ValidateToken(token string) (*jwt.Token, error)
+	GenerateBuildingAdminToken(admin *base_models.BuildingAdmin) (string, error)
 }
 
 type JWTService struct {
 	secretKey string
-	issuer    string
 }
 
 func NewJWTService() IJWTService {
 	return &JWTService{
 		secretKey: GetSecretKey(),
-		issuer:    "CleverDream",
 	}
 }
 
@@ -39,31 +39,31 @@ func GetSecretKey() string {
 	return secret
 }
 
-func (service *JWTService) GenerateToken(email string, isAdmin bool) string {
-	claims := &AuthClaims{
-		email,
-		isAdmin,
-		jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Hour * 48).Unix(),
-			Issuer:    service.issuer,
-			IssuedAt:  time.Now().Unix(),
-		},
-	}
-
+func (service *JWTService) GenerateToken(claims jwt.MapClaims) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	t, err := token.SignedString([]byte(service.secretKey))
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	return t
+	return t, nil
 }
 
-func (service *JWTService) ValidateToken(encodedToken string) (*jwt.Token, error) {
-	return jwt.Parse(encodedToken, func(token *jwt.Token) (interface{}, error) {
+func (service *JWTService) ValidateToken(token string) (*jwt.Token, error) {
+	return jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
 		if _, isValid := token.Method.(*jwt.SigningMethodHMAC); !isValid {
 			return nil, fmt.Errorf("invalid token %s", token.Header["alg"])
 		}
 		return []byte(service.secretKey), nil
 	})
+}
+
+func (s *JWTService) GenerateBuildingAdminToken(admin *base_models.BuildingAdmin) (string, error) {
+	claims := jwt.MapClaims{
+		"id":              admin.ID,
+		"email":           admin.Email,
+		"isBuildingAdmin": true,
+		"exp":             time.Now().Add(time.Hour * 24).Unix(),
+	}
+	return s.GenerateToken(claims)
 }

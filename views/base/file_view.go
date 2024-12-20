@@ -51,9 +51,9 @@ func DeleteFile(ctx *gin.Context) {
 func RegisterFileView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/add", CreateFile)
-		r.GET("/get", GetFiles)
-		r.PUT("/update", UpdateFile)
-		r.DELETE("/delete", DeleteFile)
+		r.POST("/file", CreateFile)
+		r.GET("/file", GetFiles)
+		r.PUT("/file", UpdateFile)
+		r.DELETE("/file", DeleteFile)
 	}
 }

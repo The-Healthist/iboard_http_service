@@ -51,9 +51,9 @@ func DeleteBuilding(ctx *gin.Context) {
 func RegisterBuildingView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/add", CreateBuilding)
-		r.GET("/get", GetBuildings)
-		r.PUT("/update", UpdateBuilding)
-		r.DELETE("/delete", DeleteBuilding)
+		r.POST("/building", CreateBuilding)
+		r.GET("/building", GetBuildings)
+		r.PUT("/building", UpdateBuilding)
+		r.DELETE("/building", DeleteBuilding)
 	}
 }

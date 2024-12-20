@@ -100,3 +100,48 @@ func AuthorizeJWTStaff() gin.HandlerFunc {
 		}
 	}
 }
+func AuthorizeJWTBuildingAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Authorization header is required",
+			})
+			return
+		}
+
+		tokenString := extractToken(authHeader)
+		if tokenString == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid token format",
+			})
+			return
+		}
+
+		token, err := base_services.NewJWTService().ValidateToken(tokenString)
+		if err != nil || !token.Valid {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid or expired token",
+			})
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid token claims",
+			})
+			return
+		}
+
+		if claims["isBuildingAdmin"] != true {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Insufficient permissions",
+			})
+			return
+		}
+
+		c.Set("email", claims["email"])
+		c.Next()
+	}
+}

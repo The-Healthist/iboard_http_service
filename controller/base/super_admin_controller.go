@@ -3,11 +3,13 @@ package http_base_controller
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/gin-gonic/gin"
+	jwt "github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -75,9 +77,24 @@ func (c *SuperAdminController) Login() {
 		return
 	}
 
+	claims := jwt.MapClaims{
+		"email":   form.Email,
+		"isAdmin": true,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	}
+
+	token, err := (*c.jwtService).GenerateToken(claims)
+	if err != nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   err.Error(),
+			"message": "failed to generate token",
+		})
+		return
+	}
+
 	c.ctx.JSON(200, gin.H{
 		"message": "login success",
-		"token":   (*c.jwtService).GenerateToken(form.Email, true),
+		"token":   token,
 	})
 }
 

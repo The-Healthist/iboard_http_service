@@ -51,9 +51,10 @@ func DeleteAdvertisement(ctx *gin.Context) {
 func RegisterAdvertisementView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/add", CreateAdvertisement)
-		r.GET("/get", GetAdvertisements)
-		r.PUT("/update", UpdateAdvertisement)
-		r.DELETE("/delete", DeleteAdvertisement)
+		r.POST("/advertisement", CreateAdvertisement)
+		r.GET("/advertisement", GetAdvertisements)
+		r.PUT("/advertisement", UpdateAdvertisement)
+		r.DELETE("/advertisement", DeleteAdvertisement)
+
 	}
 }

@@ -51,9 +51,9 @@ func DeleteNotice(ctx *gin.Context) {
 func RegisterNoticeView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/add", CreateNotice)
-		r.GET("/get", GetNotices)
-		r.PUT("/update", UpdateNotice)
-		r.DELETE("/delete", DeleteNotice)
+		r.POST("/notice", CreateNotice)
+		r.GET("/notice", GetNotices)
+		r.PUT("/notice", UpdateNotice)
+		r.DELETE("/notice", DeleteNotice)
 	}
 }

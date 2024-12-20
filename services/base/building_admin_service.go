@@ -5,6 +5,7 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -13,6 +14,8 @@ type InterfaceBuildingAdminService interface {
 	Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.BuildingAdmin, base_models.PaginationResult, error)
 	Update(id uint, updates map[string]interface{}) error
 	Delete(ids []uint) error
+	GetByEmail(email string) (*base_models.BuildingAdmin, error)
+	ValidatePassword(admin *base_models.BuildingAdmin, password string) bool
 }
 
 type BuildingAdminService struct {
@@ -94,4 +97,17 @@ func (s *BuildingAdminService) Delete(ids []uint) error {
 		return errors.New("no records found to delete")
 	}
 	return nil
+}
+
+func (s *BuildingAdminService) GetByEmail(email string) (*base_models.BuildingAdmin, error) {
+	var admin base_models.BuildingAdmin
+	if err := s.db.Where("email = ?", email).First(&admin).Error; err != nil {
+		return nil, err
+	}
+	return &admin, nil
+}
+
+func (s *BuildingAdminService) ValidatePassword(admin *base_models.BuildingAdmin, password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(password))
+	return err == nil
 }

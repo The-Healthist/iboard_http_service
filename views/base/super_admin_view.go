@@ -85,13 +85,14 @@ func ChangePassword(ctx *gin.Context) {
 }
 
 func RegisterSuperAdminView(r *gin.RouterGroup) {
+
 	r.POST("/login", Login)
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
-		r.POST("/add", CreateSuperAdmin)
-		r.GET("/get", GetSuperAdmins)
-		r.DELETE("/delete", DeleteSuperAdmin)
-		r.POST("/reset_password", ResetPassword) //dont use
-		r.POST("/update_password", ChangePassword)
+		r.POST("/super_admin", CreateSuperAdmin)
+		r.GET("/super_admin", GetSuperAdmins)
+		r.DELETE("/super_admin", DeleteSuperAdmin)
+		r.POST("/super_admin/reset_password", ResetPassword) //dont use
+		r.POST("/super_admin/update_password", ChangePassword)
 	}
 }
