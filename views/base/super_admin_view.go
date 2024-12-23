@@ -84,12 +84,24 @@ func ChangePassword(ctx *gin.Context) {
 	superAdminController.ChangePassword()
 }
 
-func RegisterSuperAdminView(r *gin.RouterGroup) {
+func GetOneSuperAdmin(ctx *gin.Context) {
+	superAdminService := base_services.NewSuperAdminService(databases.DB_CONN)
+	superAdminController := http_base_controller.NewSuperAdminController(
+		ctx,
+		superAdminService,
+		nil,
+		nil,
+	)
 
+	superAdminController.GetOne()
+}
+
+func RegisterSuperAdminView(r *gin.RouterGroup) {
 	r.POST("/login", Login)
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
 		r.POST("/super_admin", CreateSuperAdmin)
+		r.GET("/super_admin/:id", GetOneSuperAdmin)
 		r.GET("/super_admin", GetSuperAdmins)
 		r.DELETE("/super_admin", DeleteSuperAdmin)
 		r.POST("/super_admin/reset_password", ResetPassword) //dont use

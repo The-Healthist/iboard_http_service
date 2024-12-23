@@ -1,6 +1,8 @@
 package http_base_controller
 
 import (
+	"strconv"
+
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
@@ -12,20 +14,24 @@ type InterfaceBuildingController interface {
 	Get()
 	Update()
 	Delete()
+	GetOne()
 }
 
 type BuildingController struct {
-	ctx     *gin.Context
-	service base_services.InterfaceBuildingService
+	ctx        *gin.Context
+	service    base_services.InterfaceBuildingService
+	jwtService *base_services.IJWTService
 }
 
 func NewBuildingController(
 	ctx *gin.Context,
 	service base_services.InterfaceBuildingService,
+	jwtService *base_services.IJWTService,
 ) InterfaceBuildingController {
 	return &BuildingController{
-		ctx:     ctx,
-		service: service,
+		ctx:        ctx,
+		service:    service,
+		jwtService: jwtService,
 	}
 }
 
@@ -160,4 +166,38 @@ func (c *BuildingController) Delete() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "delete building success"})
+}
+
+func (c *BuildingController) GetOne() {
+	if c.jwtService == nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   "jwt service is nil",
+			"message": "internal server error",
+		})
+		return
+	}
+
+	idStr := c.ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   "Invalid building ID",
+			"message": "Please check the ID format",
+		})
+		return
+	}
+
+	building, err := c.service.GetByID(uint(id))
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to get building",
+		})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "Get building success",
+		"data":    building,
+	})
 }

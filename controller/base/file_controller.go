@@ -3,6 +3,7 @@ package http_base_controller
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"strconv"
 	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
@@ -16,20 +17,24 @@ type InterfaceFileController interface {
 	Get()
 	Update()
 	Delete()
+	GetOne()
 }
 
 type FileController struct {
-	ctx     *gin.Context
-	service base_services.InterfaceFileService
+	ctx        *gin.Context
+	service    base_services.InterfaceFileService
+	jwtService *base_services.IJWTService
 }
 
 func NewFileController(
 	ctx *gin.Context,
 	service base_services.InterfaceFileService,
+	jwtService *base_services.IJWTService,
 ) InterfaceFileController {
 	return &FileController{
-		ctx:     ctx,
-		service: service,
+		ctx:        ctx,
+		service:    service,
+		jwtService: jwtService,
 	}
 }
 
@@ -39,8 +44,8 @@ func (c *FileController) Create() {
 		Size         int64  `json:"size" binding:"required"`
 		MimeType     string `json:"mimeType" binding:"required"`
 		Oss          string `json:"oss" binding:"required"`
-		Uploader     string `json:"uploader" binding:"required"`
 		UploaderType string `json:"uploaderType" binding:"required"`
+		UploaderID   uint   `json:"uploaderId" binding:"required"`
 		Md5          string `json:"md5"`
 	}
 
@@ -63,8 +68,8 @@ func (c *FileController) Create() {
 		Size:         form.Size,
 		MimeType:     form.MimeType,
 		Oss:          form.Oss,
-		Uploader:     form.Uploader,
 		UploaderType: form.UploaderType,
+		UploaderID:   form.UploaderID,
 		Md5:          form.Md5,
 	}
 
@@ -186,4 +191,38 @@ func (c *FileController) Delete() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "delete file success"})
+}
+
+func (c *FileController) GetOne() {
+	if c.jwtService == nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   "jwt service is nil",
+			"message": "internal server error",
+		})
+		return
+	}
+
+	idStr := c.ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   "Invalid file ID",
+			"message": "Please check the ID format",
+		})
+		return
+	}
+
+	file, err := c.service.GetByID(uint(id))
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to get file",
+		})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "Get file success",
+		"data":    file,
+	})
 }

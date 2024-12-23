@@ -1,6 +1,8 @@
 package http_base_controller
 
 import (
+	"strconv"
+
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
@@ -12,6 +14,7 @@ type InterfaceNoticeController interface {
 	Get()
 	Update()
 	Delete()
+	GetOne()
 }
 
 type NoticeController struct {
@@ -165,4 +168,21 @@ func (c *NoticeController) Delete() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "delete notice success"})
+}
+
+func (c *NoticeController) GetOne() {
+	idStr := c.ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{"error": "Invalid notice ID"})
+		return
+	}
+
+	notice, err := c.service.GetByID(uint(id))
+	if err != nil {
+		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{"data": notice})
 }

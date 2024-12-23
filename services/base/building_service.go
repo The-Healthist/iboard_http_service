@@ -2,6 +2,7 @@ package base_services
 
 import (
 	"errors"
+	"fmt"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	models "github.com/The-Healthist/iboard_http_service/models/base"
@@ -13,6 +14,7 @@ type InterfaceBuildingService interface {
 	Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Building, base_models.PaginationResult, error)
 	Update(id uint, updates map[string]interface{}) error
 	Delete(ids []uint) error
+	GetByID(id uint) (*base_models.Building, error)
 }
 
 type BuildingService struct {
@@ -33,7 +35,7 @@ func (s *BuildingService) Get(query map[string]interface{}, paginate map[string]
 	db := s.db.Model(&models.Building{})
 
 	if search, ok := query["search"].(string); ok && search != "" {
-		db = db.Where("name LIKE ? OR address LIKE ? OR description LIKE ?",
+		db = db.Where("name LIKE ? OR ismart_id LIKE ? OR remark LIKE ?",
 			"%"+search+"%",
 			"%"+search+"%",
 			"%"+search+"%",
@@ -54,7 +56,8 @@ func (s *BuildingService) Get(query map[string]interface{}, paginate map[string]
 		db = db.Order("created_at ASC")
 	}
 
-	if err := db.Limit(pageSize).Offset(offset).Find(&buildings).Error; err != nil {
+	if err := db.Preload("BuildingAdmins").Preload("Notices").Preload("Advertisements").
+		Limit(pageSize).Offset(offset).Find(&buildings).Error; err != nil {
 		return nil, models.PaginationResult{}, err
 	}
 
@@ -85,4 +88,12 @@ func (s *BuildingService) Delete(ids []uint) error {
 		return errors.New("no records found to delete")
 	}
 	return nil
+}
+
+func (s *BuildingService) GetByID(id uint) (*base_models.Building, error) {
+	var building base_models.Building
+	if err := s.db.Preload("BuildingAdmins").Preload("Notices").Preload("Advertisements").First(&building, id).Error; err != nil {
+		return nil, fmt.Errorf("building not found: %v", err)
+	}
+	return &building, nil
 }

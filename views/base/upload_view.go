@@ -13,6 +13,13 @@ func GetUploadParams(ctx *gin.Context) {
 	controller.GetUploadParams()
 }
 
+func UploadCallback(ctx *gin.Context) {
+	uploadService := base_services.NewUploadService(databases.DB_CONN)
+	controller := http_base_controller.NewUploadController(ctx, uploadService)
+	controller.UploadCallback()
+}
+
 func RegisterUploadView(r *gin.RouterGroup) {
 	r.POST("/upload/policy", GetUploadParams)
+	r.POST("/upload/callback", UploadCallback)
 }

@@ -11,5 +11,6 @@ type Advertisement struct {
 	Display     string     `json:"display"      gorm:"size:50"` // full, top, topfull
 	FileID      *uint      `json:"file_id"      gorm:"default:null"`
 	File        File       `json:"file"         gorm:"foreignKey:FileID"`
+	IsPublic    bool       `json:"is_public"    gorm:"default:true"`
 	Buildings   []Building `json:"buildings"    gorm:"many2many:advertisement_buildings;"`
 }

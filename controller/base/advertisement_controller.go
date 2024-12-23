@@ -1,6 +1,8 @@
 package http_base_controller
 
 import (
+	"strconv"
+
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
@@ -12,20 +14,24 @@ type InterfaceAdvertisementController interface {
 	Get()
 	Update()
 	Delete()
+	GetOne()
 }
 
 type AdvertisementController struct {
-	ctx     *gin.Context
-	service base_services.InterfaceAdvertisementService
+	ctx        *gin.Context
+	service    base_services.InterfaceAdvertisementService
+	jwtService *base_services.IJWTService
 }
 
 func NewAdvertisementController(
 	ctx *gin.Context,
 	service base_services.InterfaceAdvertisementService,
+	jwtService *base_services.IJWTService,
 ) InterfaceAdvertisementController {
 	return &AdvertisementController{
-		ctx:     ctx,
-		service: service,
+		ctx:        ctx,
+		service:    service,
+		jwtService: jwtService,
 	}
 }
 
@@ -177,4 +183,39 @@ func (c *AdvertisementController) Delete() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "delete advertisement success"})
+}
+
+func (c *AdvertisementController) GetOne() {
+	// First verify JWT token
+	if c.jwtService == nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   "jwt service is nil",
+			"message": "internal server error",
+		})
+		return
+	}
+
+	idStr := c.ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   "Invalid advertisement ID",
+			"message": "Please check the ID format",
+		})
+		return
+	}
+
+	advertisement, err := c.service.GetByID(uint(id))
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to get advertisement",
+		})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "Get advertisement success",
+		"data":    advertisement,
+	})
 }

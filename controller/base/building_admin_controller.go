@@ -1,6 +1,8 @@
 package http_base_controller
 
 import (
+	"strconv"
+
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
@@ -13,20 +15,24 @@ type InterfaceBuildingAdminController interface {
 	Get()
 	Update()
 	Delete()
+	GetOne()
 }
 
 type BuildingAdminController struct {
-	ctx     *gin.Context
-	service base_services.InterfaceBuildingAdminService
+	ctx        *gin.Context
+	service    base_services.InterfaceBuildingAdminService
+	jwtService *base_services.IJWTService
 }
 
 func NewBuildingAdminController(
 	ctx *gin.Context,
 	service base_services.InterfaceBuildingAdminService,
+	jwtService *base_services.IJWTService,
 ) InterfaceBuildingAdminController {
 	return &BuildingAdminController{
-		ctx:     ctx,
-		service: service,
+		ctx:        ctx,
+		service:    service,
+		jwtService: jwtService,
 	}
 }
 
@@ -169,4 +175,40 @@ func (c *BuildingAdminController) Delete() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "delete building admin success"})
+}
+
+func (c *BuildingAdminController) GetOne() {
+	// First verify JWT token
+	if c.jwtService == nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   "jwt service is nil",
+			"message": "internal server error",
+		})
+		return
+	}
+
+	idStr := c.ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   "Invalid building admin ID",
+			"message": "Please check the ID format",
+		})
+		return
+	}
+
+	buildingAdmin, err := c.service.GetByID(uint(id))
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to get building admin",
+		})
+		return
+	}
+
+	buildingAdmin.Password = "" // Don't return password
+	c.ctx.JSON(200, gin.H{
+		"message": "Get building admin success",
+		"data":    buildingAdmin,
+	})
 }

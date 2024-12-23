@@ -2,6 +2,7 @@ package http_base_controller
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type InterfaceSuperAdminController interface {
 	DeleteSuperAdmin()
 	ResetPassword()
 	ChangePassword()
+	GetOne()
 }
 
 type SuperAdminController struct {
@@ -278,4 +280,22 @@ func (c *SuperAdminController) ChangePassword() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "change password success"})
+}
+
+func (c *SuperAdminController) GetOne() {
+	idStr := c.ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{"error": "Invalid super admin ID"})
+		return
+	}
+
+	superAdmin, err := c.service.GetSuperAdminById(uint(id))
+	if err != nil {
+		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	superAdmin.Password = "" // Don't return password
+	c.ctx.JSON(200, gin.H{"data": superAdmin})
 }

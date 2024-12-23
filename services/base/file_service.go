@@ -2,6 +2,7 @@ package base_services
 
 import (
 	"errors"
+	"fmt"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"gorm.io/gorm"
@@ -12,6 +13,7 @@ type InterfaceFileService interface {
 	Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.File, base_models.PaginationResult, error)
 	Update(id uint, updates map[string]interface{}) error
 	Delete(ids []uint) error
+	GetByID(id uint) (*base_models.File, error)
 }
 
 type FileService struct {
@@ -108,4 +110,12 @@ func (s *FileService) Delete(ids []uint) error {
 		return errors.New("no records found to delete")
 	}
 	return nil
+}
+
+func (s *FileService) GetByID(id uint) (*base_models.File, error) {
+	var file base_models.File
+	if err := s.db.First(&file, id).Error; err != nil {
+		return nil, fmt.Errorf("file not found: %v", err)
+	}
+	return &file, nil
 }

@@ -41,6 +41,11 @@ func (c *UploadController) GetUploadParams() {
 		}
 	}
 
+	// 如果没有提供 callback_url，使用默认的 frp 地址
+	if req.CallbackURL == "" {
+		req.CallbackURL = "http://your_domain.com/api/upload/callback"
+	}
+
 	policy, err := c.service.GetUploadParams(req.UploadDir, req.CallbackURL)
 	if err != nil {
 		c.ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -50,4 +55,34 @@ func (c *UploadController) GetUploadParams() {
 	}
 
 	c.ctx.JSON(http.StatusOK, policy)
+}
+
+func (c *UploadController) UploadCallback() {
+	// OSS 回调时会发送文件信息
+	var callbackData struct {
+		Filename string `form:"filename"`
+		Size     int64  `form:"size"`
+		MimeType string `form:"mimeType"`
+		Height   int    `form:"height"`
+		Width    int    `form:"width"`
+	}
+
+	if err := c.ctx.ShouldBind(&callbackData); err != nil {
+		c.ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid callback data",
+		})
+		return
+	}
+
+	if err := c.service.UploadCallback(); err != nil {
+		c.ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   callbackData,
+	})
 }

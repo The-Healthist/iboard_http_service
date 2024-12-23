@@ -11,9 +11,11 @@ import (
 // 1,CreateBuildingAdmin
 func CreateBuildingAdmin(ctx *gin.Context) {
 	buildingAdminService := base_services.NewBuildingAdminService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingAdminController := http_base_controller.NewBuildingAdminController(
 		ctx,
 		buildingAdminService,
+		&jwtService,
 	)
 
 	buildingAdminController.Create()
@@ -22,9 +24,11 @@ func CreateBuildingAdmin(ctx *gin.Context) {
 // 2, GetBuildingAdmins
 func GetBuildingAdmins(ctx *gin.Context) {
 	buildingAdminService := base_services.NewBuildingAdminService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingAdminController := http_base_controller.NewBuildingAdminController(
 		ctx,
 		buildingAdminService,
+		&jwtService,
 	)
 
 	buildingAdminController.Get()
@@ -33,9 +37,11 @@ func GetBuildingAdmins(ctx *gin.Context) {
 // 3, UpdateBuildingAdmin
 func UpdateBuildingAdmin(ctx *gin.Context) {
 	buildingAdminService := base_services.NewBuildingAdminService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingAdminController := http_base_controller.NewBuildingAdminController(
 		ctx,
 		buildingAdminService,
+		&jwtService,
 	)
 
 	buildingAdminController.Update()
@@ -44,9 +50,11 @@ func UpdateBuildingAdmin(ctx *gin.Context) {
 // 4, DeleteBuildingAdmin
 func DeleteBuildingAdmin(ctx *gin.Context) {
 	buildingAdminService := base_services.NewBuildingAdminService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingAdminController := http_base_controller.NewBuildingAdminController(
 		ctx,
 		buildingAdminService,
+		&jwtService,
 	)
 
 	buildingAdminController.Delete()
@@ -58,7 +66,21 @@ func RegisterBuildingAdminView(r *gin.RouterGroup) {
 	{
 		r.POST("/building_admin", CreateBuildingAdmin)
 		r.GET("/building_admin", GetBuildingAdmins)
+		r.GET("/building_admin/:id", GetOneBuildingAdmin)
 		r.PUT("/building_admin", UpdateBuildingAdmin)
 		r.DELETE("/building_admin", DeleteBuildingAdmin)
 	}
+}
+
+// GetOneBuildingAdmin gets a single building admin by ID
+func GetOneBuildingAdmin(ctx *gin.Context) {
+	buildingAdminService := base_services.NewBuildingAdminService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	buildingAdminController := http_base_controller.NewBuildingAdminController(
+		ctx,
+		buildingAdminService,
+		&jwtService,
+	)
+
+	buildingAdminController.GetOne()
 }

@@ -114,5 +114,7 @@ func (s *UploadService) GetUploadParams(uploadDir string, callbackUrl string) (m
 }
 
 func (s *UploadService) UploadCallback() error {
+	// 这里可以添加验证 OSS 回调请求的逻辑
+	// 处理文件上传后的业务逻辑
 	return nil
 }

@@ -2,6 +2,7 @@ package base_services
 
 import (
 	"errors"
+	"fmt"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"gorm.io/gorm"
@@ -12,6 +13,7 @@ type InterfaceAdvertisementService interface {
 	Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Advertisement, base_models.PaginationResult, error)
 	Update(id uint, updates map[string]interface{}) (*base_models.Advertisement, error)
 	Delete(ids []uint) error
+	GetByID(id uint) (*base_models.Advertisement, error)
 }
 
 type AdvertisementService struct {
@@ -103,4 +105,12 @@ func (s *AdvertisementService) Delete(ids []uint) error {
 		return errors.New("no records found to delete")
 	}
 	return nil
+}
+
+func (s *AdvertisementService) GetByID(id uint) (*base_models.Advertisement, error) {
+	var advertisement base_models.Advertisement
+	if err := s.db.Preload("File").Preload("Buildings").First(&advertisement, id).Error; err != nil {
+		return nil, fmt.Errorf("advertisement not found: %v", err)
+	}
+	return &advertisement, nil
 }

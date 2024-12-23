@@ -10,9 +10,11 @@ import (
 
 func CreateFile(ctx *gin.Context) {
 	fileService := base_services.NewFileService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	fileController := http_base_controller.NewFileController(
 		ctx,
 		fileService,
+		&jwtService,
 	)
 
 	fileController.Create()
@@ -20,9 +22,11 @@ func CreateFile(ctx *gin.Context) {
 
 func GetFiles(ctx *gin.Context) {
 	fileService := base_services.NewFileService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	fileController := http_base_controller.NewFileController(
 		ctx,
 		fileService,
+		&jwtService,
 	)
 
 	fileController.Get()
@@ -30,9 +34,11 @@ func GetFiles(ctx *gin.Context) {
 
 func UpdateFile(ctx *gin.Context) {
 	fileService := base_services.NewFileService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	fileController := http_base_controller.NewFileController(
 		ctx,
 		fileService,
+		&jwtService,
 	)
 
 	fileController.Update()
@@ -40,12 +46,26 @@ func UpdateFile(ctx *gin.Context) {
 
 func DeleteFile(ctx *gin.Context) {
 	fileService := base_services.NewFileService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	fileController := http_base_controller.NewFileController(
 		ctx,
 		fileService,
+		&jwtService,
 	)
 
 	fileController.Delete()
+}
+
+func GetOneFile(ctx *gin.Context) {
+	fileService := base_services.NewFileService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	fileController := http_base_controller.NewFileController(
+		ctx,
+		fileService,
+		&jwtService,
+	)
+
+	fileController.GetOne()
 }
 
 func RegisterFileView(r *gin.RouterGroup) {
@@ -53,6 +73,7 @@ func RegisterFileView(r *gin.RouterGroup) {
 	{
 		r.POST("/file", CreateFile)
 		r.GET("/file", GetFiles)
+		r.GET("/file/:id", GetOneFile)
 		r.PUT("/file", UpdateFile)
 		r.DELETE("/file", DeleteFile)
 	}

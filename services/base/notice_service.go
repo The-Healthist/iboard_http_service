@@ -12,6 +12,7 @@ type InterfaceNoticeService interface {
 	Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Notice, base_models.PaginationResult, error)
 	Update(id uint, updates map[string]interface{}) (*base_models.Notice, error)
 	Delete(ids []uint) error
+	GetByID(id uint) (*base_models.Notice, error)
 }
 
 type NoticeService struct {
@@ -105,4 +106,12 @@ func (s *NoticeService) Delete(ids []uint) error {
 		return errors.New("no records found to delete")
 	}
 	return nil
+}
+
+func (s *NoticeService) GetByID(id uint) (*base_models.Notice, error) {
+	var notice base_models.Notice
+	if err := s.db.Preload("File").Preload("Buildings").First(&notice, id).Error; err != nil {
+		return nil, err
+	}
+	return &notice, nil
 }

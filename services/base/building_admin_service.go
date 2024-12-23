@@ -2,6 +2,7 @@ package base_services
 
 import (
 	"errors"
+	"fmt"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 
@@ -16,6 +17,7 @@ type InterfaceBuildingAdminService interface {
 	Delete(ids []uint) error
 	GetByEmail(email string) (*base_models.BuildingAdmin, error)
 	ValidatePassword(admin *base_models.BuildingAdmin, password string) bool
+	GetByID(id uint) (*base_models.BuildingAdmin, error)
 }
 
 type BuildingAdminService struct {
@@ -110,4 +112,12 @@ func (s *BuildingAdminService) GetByEmail(email string) (*base_models.BuildingAd
 func (s *BuildingAdminService) ValidatePassword(admin *base_models.BuildingAdmin, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(password))
 	return err == nil
+}
+
+func (s *BuildingAdminService) GetByID(id uint) (*base_models.BuildingAdmin, error) {
+	var admin base_models.BuildingAdmin
+	if err := s.db.Preload("Buildings").First(&admin, id).Error; err != nil {
+		return nil, fmt.Errorf("building admin not found: %v", err)
+	}
+	return &admin, nil
 }

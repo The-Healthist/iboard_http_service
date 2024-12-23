@@ -10,9 +10,11 @@ import (
 
 func CreateBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingController := http_base_controller.NewBuildingController(
 		ctx,
 		buildingService,
+		&jwtService,
 	)
 
 	buildingController.Create()
@@ -20,19 +22,35 @@ func CreateBuilding(ctx *gin.Context) {
 
 func GetBuildings(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingController := http_base_controller.NewBuildingController(
 		ctx,
 		buildingService,
+		&jwtService,
 	)
 
 	buildingController.Get()
 }
 
-func UpdateBuilding(ctx *gin.Context) {
+func GetOneBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingController := http_base_controller.NewBuildingController(
 		ctx,
 		buildingService,
+		&jwtService,
+	)
+
+	buildingController.GetOne()
+}
+
+func UpdateBuilding(ctx *gin.Context) {
+	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	buildingController := http_base_controller.NewBuildingController(
+		ctx,
+		buildingService,
+		&jwtService,
 	)
 
 	buildingController.Update()
@@ -40,9 +58,11 @@ func UpdateBuilding(ctx *gin.Context) {
 
 func DeleteBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
 	buildingController := http_base_controller.NewBuildingController(
 		ctx,
 		buildingService,
+		&jwtService,
 	)
 
 	buildingController.Delete()
@@ -53,6 +73,7 @@ func RegisterBuildingView(r *gin.RouterGroup) {
 	{
 		r.POST("/building", CreateBuilding)
 		r.GET("/building", GetBuildings)
+		r.GET("/building/:id", GetOneBuilding)
 		r.PUT("/building", UpdateBuilding)
 		r.DELETE("/building", DeleteBuilding)
 	}
