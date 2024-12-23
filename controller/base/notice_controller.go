@@ -6,6 +6,7 @@ import (
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
 )
 
@@ -34,10 +35,10 @@ func NewNoticeController(
 
 func (c *NoticeController) Create() {
 	var form struct {
-		Title       string `json:"title" binding:"required"`
-		Description string `json:"description"`
-		Type        string `json:"type"`
-		FileID      *uint  `json:"fileId"`
+		Title       string           `json:"title" binding:"required"`
+		Description string           `json:"description"`
+		Type        field.NoticeType `json:"type"`
+		FileID      *uint            `json:"fileId"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {

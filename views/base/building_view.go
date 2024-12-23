@@ -68,7 +68,55 @@ func DeleteBuilding(ctx *gin.Context) {
 	buildingController.Delete()
 }
 
+func LoginBuilding(ctx *gin.Context) {
+	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	buildingController := http_base_controller.NewBuildingController(
+		ctx,
+		buildingService,
+		&jwtService,
+	)
+
+	buildingController.Login()
+}
+
+func GetBuildingAdvertisements(ctx *gin.Context) {
+	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	buildingController := http_base_controller.NewBuildingController(
+		ctx,
+		buildingService,
+		&jwtService,
+	)
+
+	buildingController.GetBuildingAdvertisements()
+}
+
+func GetBuildingNotices(ctx *gin.Context) {
+	buildingService := base_services.NewBuildingService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	buildingController := http_base_controller.NewBuildingController(
+		ctx,
+		buildingService,
+		&jwtService,
+	)
+
+	buildingController.GetBuildingNotices()
+}
+
 func RegisterBuildingView(r *gin.RouterGroup) {
+	// Public routes (no authentication required)
+	r.POST("/building/login", LoginBuilding)
+
+	// Building client routes (requires building JWT)
+	buildingClient := r.Group("/building/client")
+	buildingClient.Use(middlewares.AuthorizeJWTBuilding())
+	{
+		buildingClient.GET("/advertisements", GetBuildingAdvertisements)
+		buildingClient.GET("/notices", GetBuildingNotices)
+	}
+
+	// Admin routes (requires admin JWT)
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
 		r.POST("/building", CreateBuilding)

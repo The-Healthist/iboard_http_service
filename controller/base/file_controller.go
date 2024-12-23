@@ -9,6 +9,7 @@ import (
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,13 +41,13 @@ func NewFileController(
 
 func (c *FileController) Create() {
 	var form struct {
-		Path         string `json:"path" binding:"required"`
-		Size         int64  `json:"size" binding:"required"`
-		MimeType     string `json:"mimeType" binding:"required"`
-		Oss          string `json:"oss" binding:"required"`
-		UploaderType string `json:"uploaderType" binding:"required"`
-		UploaderID   uint   `json:"uploaderId" binding:"required"`
-		Md5          string `json:"md5"`
+		Path         string                 `json:"path" binding:"required"`
+		Size         int64                  `json:"size" binding:"required"`
+		MimeType     string                 `json:"mimeType" binding:"required"`
+		Oss          string                 `json:"oss" binding:"required"`
+		UploaderType field.FileUploaderType `json:"uploaderType" binding:"required"`
+		UploaderID   uint                   `json:"uploaderId" binding:"required"`
+		Md5          string                 `json:"md5"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {

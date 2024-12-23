@@ -31,7 +31,7 @@ func NewNoticeBuildingController(
 
 func (c *NoticeBuildingController) BindBuildings() {
 	var form struct {
-		NoticeID    uint   `json:"noticeId" binding:"required"`
+		NoticeIDs   []uint `json:"noticeIds" binding:"required,min=1"`
 		BuildingIDs []uint `json:"buildingIds" binding:"required,min=1"`
 	}
 
@@ -40,15 +40,23 @@ func (c *NoticeBuildingController) BindBuildings() {
 		return
 	}
 
-	// 检查通知是否存在
-	exists, err := c.service.NoticeExists(form.NoticeID)
-	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
-		return
+	var response struct {
+		Success           []map[string]interface{} `json:"success"`
+		NotFoundNotices   []uint                   `json:"notFoundNotices,omitempty"`
+		NotFoundBuildings []uint                   `json:"notFoundBuildings,omitempty"`
+		AlreadyBound      []map[string]interface{} `json:"alreadyBound,omitempty"`
 	}
-	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Notice not found"})
-		return
+
+	// 检查所有通知是否存在
+	for _, noticeID := range form.NoticeIDs {
+		exists, err := c.service.NoticeExists(noticeID)
+		if err != nil {
+			c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+			return
+		}
+		if !exists {
+			response.NotFoundNotices = append(response.NotFoundNotices, noticeID)
+		}
 	}
 
 	// 检查所有建筑物是否存在
@@ -58,50 +66,62 @@ func (c *NoticeBuildingController) BindBuildings() {
 		return
 	}
 	if len(missingBuildings) > 0 {
-		c.ctx.JSON(404, map[string]interface{}{
-			"error":              "Some Buildings not found",
-			"missingBuildingIds": missingBuildings,
-		})
+		response.NotFoundBuildings = missingBuildings
+	}
+
+	// 如果有不存在的记录，直接返回错误
+	if len(response.NotFoundNotices) > 0 || len(response.NotFoundBuildings) > 0 {
+		c.ctx.JSON(404, response)
 		return
 	}
 
-	// 获取当前绑定的建筑物列表
-	currentBuildings, err := c.service.GetBuildingsByNoticeID(form.NoticeID)
-	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
-		return
-	}
+	// 处理每个通知的绑定
+	for _, noticeID := range form.NoticeIDs {
+		// 获取当前绑定的建筑物列表
+		currentBuildings, err := c.service.GetBuildingsByNoticeID(noticeID)
+		if err != nil {
+			c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+			return
+		}
 
-	// 检查重复绑定
-	alreadyBoundMap := make(map[uint]bool)
-	for _, b := range currentBuildings {
-		alreadyBoundMap[b.ID] = true
-	}
+		// 检查重复绑定
+		alreadyBoundMap := make(map[uint]bool)
+		for _, b := range currentBuildings {
+			alreadyBoundMap[b.ID] = true
+		}
 
-	var duplicateBindings []uint
-	var validBindings []uint
-	for _, id := range form.BuildingIDs {
-		if alreadyBoundMap[id] {
-			duplicateBindings = append(duplicateBindings, id)
-		} else {
-			validBindings = append(validBindings, id)
+		var duplicateBindings []uint
+		var validBindings []uint
+		for _, id := range form.BuildingIDs {
+			if alreadyBoundMap[id] {
+				duplicateBindings = append(duplicateBindings, id)
+			} else {
+				validBindings = append(validBindings, id)
+			}
+		}
+
+		// 记录已经绑定的关系
+		if len(duplicateBindings) > 0 {
+			response.AlreadyBound = append(response.AlreadyBound, map[string]interface{}{
+				"noticeId":             noticeID,
+				"duplicateBuildingIds": duplicateBindings,
+			})
+		}
+
+		// 执行有效的绑定
+		if len(validBindings) > 0 {
+			if err := c.service.BindBuildings(noticeID, validBindings); err != nil {
+				c.ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
+				return
+			}
+			response.Success = append(response.Success, map[string]interface{}{
+				"noticeId":    noticeID,
+				"buildingIds": validBindings,
+			})
 		}
 	}
 
-	if len(duplicateBindings) > 0 {
-		c.ctx.JSON(400, map[string]interface{}{
-			"error":                "Some Buildings are already bound to the Notice",
-			"duplicateBuildingIds": duplicateBindings,
-		})
-		return
-	}
-
-	if err := c.service.BindBuildings(form.NoticeID, validBindings); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
-		return
-	}
-
-	c.ctx.JSON(200, map[string]interface{}{"message": "Buildings bound successfully"})
+	c.ctx.JSON(200, response)
 }
 
 func (c *NoticeBuildingController) UnbindBuildings() {

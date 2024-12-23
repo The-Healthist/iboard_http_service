@@ -43,7 +43,6 @@ func InitDB(host, user, password, port, dbname string) *gorm.DB {
 		&base_models.BuildingAdmin{},
 		&base_models.Building{},
 		&base_models.Advertisement{},
-		&base_models.Permission{},
 		&base_models.Notice{},
 		&base_models.File{},
 	); err != nil {
@@ -64,7 +63,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&base_models.BuildingAdmin{},
 		&base_models.Building{},
 		&base_models.Advertisement{},
-		&base_models.Permission{},
 		&base_models.Notice{},
 		&base_models.File{},
 	)

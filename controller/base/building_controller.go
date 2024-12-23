@@ -15,6 +15,9 @@ type InterfaceBuildingController interface {
 	Update()
 	Delete()
 	GetOne()
+	Login()
+	GetBuildingAdvertisements()
+	GetBuildingNotices()
 }
 
 type BuildingController struct {
@@ -199,5 +202,128 @@ func (c *BuildingController) GetOne() {
 	c.ctx.JSON(200, gin.H{
 		"message": "Get building success",
 		"data":    building,
+	})
+}
+
+func (c *BuildingController) Login() {
+	var form struct {
+		IsmartID string `json:"ismartId" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+
+	if err := c.ctx.ShouldBindJSON(&form); err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "invalid form",
+		})
+		return
+	}
+
+	building, err := c.service.GetByCredentials(form.IsmartID, form.Password)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Invalid credentials",
+		})
+		return
+	}
+
+	// Generate JWT token
+	if c.jwtService == nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   "jwt service is nil",
+			"message": "internal server error",
+		})
+		return
+	}
+
+	token, err := (*c.jwtService).GenerateBuildingToken(building)
+	if err != nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   err.Error(),
+			"message": "failed to generate token",
+		})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "Login success",
+		"data": gin.H{
+			"id":       building.ID,
+			"name":     building.Name,
+			"ismartId": building.IsmartID,
+			"remark":   building.Remark,
+		},
+		"token": token,
+	})
+}
+
+func (c *BuildingController) GetBuildingAdvertisements() {
+	claims, exists := c.ctx.Get("claims")
+	if !exists {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	claimsMap, ok := claims.(map[string]interface{})
+	if !ok {
+		c.ctx.JSON(500, gin.H{"error": "invalid claims format"})
+		return
+	}
+
+	buildingIdFloat, ok := claimsMap["buildingId"].(float64)
+	if !ok {
+		c.ctx.JSON(500, gin.H{"error": "invalid building id format"})
+		return
+	}
+
+	buildingId := uint(buildingIdFloat)
+	advertisements, err := c.service.GetBuildingAdvertisements(buildingId)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to get advertisements",
+		})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "Get advertisements success",
+		"data":    advertisements,
+	})
+}
+
+func (c *BuildingController) GetBuildingNotices() {
+	claims, exists := c.ctx.Get("claims")
+	if !exists {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	claimsMap, ok := claims.(map[string]interface{})
+	if !ok {
+		c.ctx.JSON(500, gin.H{"error": "invalid claims format"})
+		return
+	}
+
+	buildingIdFloat, ok := claimsMap["buildingId"].(float64)
+	if !ok {
+		c.ctx.JSON(500, gin.H{"error": "invalid building id format"})
+		return
+	}
+
+	buildingId := uint(buildingIdFloat)
+	notices, err := c.service.GetBuildingNotices(buildingId)
+	if err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to get notices",
+		})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "Get notices success",
+		"data":    notices,
 	})
 }

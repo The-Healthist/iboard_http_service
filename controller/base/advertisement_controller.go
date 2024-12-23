@@ -6,6 +6,7 @@ import (
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,11 +38,11 @@ func NewAdvertisementController(
 
 func (c *AdvertisementController) Create() {
 	var form struct {
-		Title       string `json:"title" binding:"required"`
-		Description string `json:"description"`
-		Type        string `json:"type" binding:"required"`
-		Duration    int    `json:"duration"`
-		Display     string `json:"display" binding:"required"`
+		Title       string                     `json:"title" binding:"required"`
+		Description string                     `json:"description"`
+		Type        field.AdvertisementType    `json:"type" binding:"required"`
+		Duration    int                        `json:"duration"`
+		Display     field.AdvertisementDisplay `json:"display" binding:"required"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
