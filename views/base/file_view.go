@@ -72,9 +72,22 @@ func RegisterFileView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
 		r.POST("/file", CreateFile)
+		r.POST("/files", CreateManyFiles)
 		r.GET("/file", GetFiles)
 		r.GET("/file/:id", GetOneFile)
 		r.PUT("/file", UpdateFile)
 		r.DELETE("/file", DeleteFile)
 	}
+}
+
+func CreateManyFiles(ctx *gin.Context) {
+	fileService := base_services.NewFileService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	fileController := http_base_controller.NewFileController(
+		ctx,
+		fileService,
+		&jwtService,
+	)
+
+	fileController.CreateMany()
 }

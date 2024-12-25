@@ -4,7 +4,7 @@ package base_models
 type Building struct {
 	ModelFields
 	Name           string          `json:"name" gorm:"size:255;not null"`
-	IsmartID       string          `json:"ismartId" gorm:"size:255;not null"`
+	IsmartID       string          `json:"ismartId" gorm:"size:255;not null;unique"`
 	Password       string          `json:"password" gorm:"size:255;not null"`
 	Remark         string          `json:"remark" gorm:"type:text"`
 	BuildingAdmins []BuildingAdmin `json:"-" gorm:"many2many:building_admins_buildings;"`

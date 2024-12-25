@@ -2,8 +2,10 @@ package base_services
 
 import (
 	"errors"
+	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"gorm.io/gorm"
 )
 
@@ -35,9 +37,7 @@ func (s *NoticeService) Create(notice *base_models.Notice) error {
 func (s *NoticeService) Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Notice, base_models.PaginationResult, error) {
 	var notices []base_models.Notice
 	var total int64
-	db := s.db.Model(&base_models.Notice{}).
-		Preload("Buildings").
-		Preload("File")
+	db := s.db.Model(&base_models.Notice{})
 
 	if search, ok := query["search"].(string); ok && search != "" {
 		db = db.Where("title LIKE ? OR description LIKE ?",
@@ -64,8 +64,26 @@ func (s *NoticeService) Get(query map[string]interface{}, paginate map[string]in
 		db = db.Order("created_at ASC")
 	}
 
-	if err := db.Limit(pageSize).Offset(offset).Find(&notices).Error; err != nil {
+	if err := db.Select("id, created_at, updated_at, deleted_at, title, description, type, status, start_time, end_time, file_id, file_type, is_public").
+		Limit(pageSize).Offset(offset).
+		Find(&notices).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
+	}
+
+	for i := range notices {
+		if notices[i].StartTime.IsZero() {
+			notices[i].StartTime = time.Date(2024, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+		}
+		if notices[i].EndTime.IsZero() {
+			notices[i].EndTime = time.Date(2025, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+		}
+		if notices[i].Status == "" {
+			notices[i].Status = field.Status("active")
+		}
+		if notices[i].FileType == "" {
+			notices[i].FileType = field.FileTypePdf
+		}
+		notices[i].File = nil
 	}
 
 	return notices, base_models.PaginationResult{
@@ -110,8 +128,25 @@ func (s *NoticeService) Delete(ids []uint) error {
 
 func (s *NoticeService) GetByID(id uint) (*base_models.Notice, error) {
 	var notice base_models.Notice
-	if err := s.db.Preload("File").Preload("Buildings").First(&notice, id).Error; err != nil {
+	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
 		return nil, err
 	}
+
+	if notice.StartTime.IsZero() {
+		notice.StartTime = time.Date(2024, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+	}
+	if notice.EndTime.IsZero() {
+		notice.EndTime = time.Date(2025, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+	}
+	if notice.Status == "" {
+		notice.Status = field.Status("active")
+	}
+	if notice.FileType == "" {
+		notice.FileType = field.FileTypePdf
+	}
+	if notice.File != nil && notice.File.ID == 0 {
+		notice.File = nil
+	}
+
 	return &notice, nil
 }

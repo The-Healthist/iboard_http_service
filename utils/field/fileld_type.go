@@ -1,13 +1,5 @@
 package field
 
-// file uploader type
-type FileUploaderType string
-
-const (
-	UploaderTypeUser       FileUploaderType = "user"
-	UploaderTypeSuperAdmin FileUploaderType = "superadmin"
-)
-
 // advertisement type
 type AdvertisementType string
 
@@ -30,9 +22,18 @@ type NoticeType string
 
 const (
 	NoticeTypeUrgent     NoticeType = "urgent"
-	NoticeTypeCommon     NoticeType = "common"
-	NoticeTypeSystem     NoticeType = "system"
+	NoticeTypeNormal     NoticeType = "normal"
+	NoticeTypeBuilding   NoticeType = "building"
 	NoticeTypeGovernment NoticeType = "government"
+)
+
+// notice status
+type Status string
+
+const (
+	StatusPending  Status = "pending"
+	StatusActive   Status = "active"
+	StatusInactive Status = "inactive"
 )
 
 // file type
@@ -42,10 +43,18 @@ const (
 	FileTypePdf FileType = "pdf"
 )
 
+// upload
+type FileUploaderType string
+
+const (
+	UploaderTypeBuildingAdmin FileUploaderType = "buildingAdmin"
+	UploaderTypeSuperAdmin    FileUploaderType = "superAdmin"
+)
+
 // validate method
 func IsValidFileUploaderType(t string) bool {
 	switch FileUploaderType(t) {
-	case UploaderTypeUser, UploaderTypeSuperAdmin:
+	case UploaderTypeBuildingAdmin, UploaderTypeSuperAdmin:
 		return true
 	}
 	return false
@@ -69,7 +78,16 @@ func IsValidAdvertisementDisplay(d string) bool {
 
 func IsValidNoticeType(t string) bool {
 	switch NoticeType(t) {
-	case NoticeTypeUrgent, NoticeTypeCommon, NoticeTypeSystem, NoticeTypeGovernment:
+	case NoticeTypeUrgent, NoticeTypeNormal, NoticeTypeBuilding, NoticeTypeGovernment:
+		return true
+	}
+	return false
+}
+
+// validate status
+func IsValidStatus(s string) bool {
+	switch Status(s) {
+	case StatusPending, StatusActive, StatusInactive:
 		return true
 	}
 	return false

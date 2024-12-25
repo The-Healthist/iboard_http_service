@@ -2,9 +2,10 @@ package base_services
 
 import (
 	"errors"
-	"fmt"
+	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"gorm.io/gorm"
 )
 
@@ -36,7 +37,7 @@ func (s *AdvertisementService) Create(advertisement *base_models.Advertisement) 
 func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Advertisement, base_models.PaginationResult, error) {
 	var advertisements []base_models.Advertisement
 	var total int64
-	db := s.db.Model(&base_models.Advertisement{}).Preload("File").Preload("Buildings")
+	db := s.db.Model(&base_models.Advertisement{})
 
 	if search, ok := query["search"].(string); ok && search != "" {
 		db = db.Where("title LIKE ? OR description LIKE ?",
@@ -45,8 +46,8 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 		)
 	}
 
-	if adType, ok := query["type"].(string); ok && adType != "" {
-		db = db.Where("type = ?", adType)
+	if advertisementType, ok := query["type"].(string); ok && advertisementType != "" {
+		db = db.Where("type = ?", advertisementType)
 	}
 
 	if err := db.Count(&total).Error; err != nil {
@@ -63,8 +64,23 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 		db = db.Order("created_at ASC")
 	}
 
-	if err := db.Limit(pageSize).Offset(offset).Find(&advertisements).Error; err != nil {
+	if err := db.Select("id, created_at, updated_at, deleted_at, title, description, type, status, duration, start_time, end_time, display, file_id, is_public").
+		Limit(pageSize).Offset(offset).
+		Find(&advertisements).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
+	}
+
+	for i := range advertisements {
+		if advertisements[i].StartTime.IsZero() {
+			advertisements[i].StartTime = time.Date(2024, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+		}
+		if advertisements[i].EndTime.IsZero() {
+			advertisements[i].EndTime = time.Date(2025, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+		}
+		if advertisements[i].Status == "" {
+			advertisements[i].Status = field.Status("active")
+		}
+		advertisements[i].File = nil
 	}
 
 	return advertisements, base_models.PaginationResult{
@@ -109,8 +125,22 @@ func (s *AdvertisementService) Delete(ids []uint) error {
 
 func (s *AdvertisementService) GetByID(id uint) (*base_models.Advertisement, error) {
 	var advertisement base_models.Advertisement
-	if err := s.db.Preload("File").Preload("Buildings").First(&advertisement, id).Error; err != nil {
-		return nil, fmt.Errorf("advertisement not found: %v", err)
+	if err := s.db.Preload("File").First(&advertisement, id).Error; err != nil {
+		return nil, err
 	}
+
+	if advertisement.StartTime.IsZero() {
+		advertisement.StartTime = time.Date(2024, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+	}
+	if advertisement.EndTime.IsZero() {
+		advertisement.EndTime = time.Date(2025, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
+	}
+	if advertisement.Status == "" {
+		advertisement.Status = field.Status("active")
+	}
+	if advertisement.File != nil && advertisement.File.ID == 0 {
+		advertisement.File = nil
+	}
+
 	return &advertisement, nil
 }

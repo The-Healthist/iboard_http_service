@@ -72,9 +72,22 @@ func RegisterAdvertisementView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
 		r.POST("/advertisement", CreateAdvertisement)
+		r.POST("/advertisements", CreateManyAdvertisements)
 		r.GET("/advertisement", GetAdvertisements)
 		r.GET("/advertisement/:id", GetOne)
 		r.PUT("/advertisement", UpdateAdvertisement)
 		r.DELETE("/advertisement", DeleteAdvertisement)
 	}
+}
+
+func CreateManyAdvertisements(ctx *gin.Context) {
+	advertisementService := base_services.NewAdvertisementService(databases.DB_CONN)
+	jwtService := base_services.NewJWTService()
+	advertisementController := http_base_controller.NewAdvertisementController(
+		ctx,
+		advertisementService,
+		&jwtService,
+	)
+
+	advertisementController.CreateMany()
 }

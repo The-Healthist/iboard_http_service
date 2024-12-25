@@ -38,11 +38,12 @@ func NewBuildingController(
 	}
 }
 
+// 1,create
 func (c *BuildingController) Create() {
 	var form struct {
 		Name     string `json:"name" binding:"required"`
-		IsmartID string `json:"ismartId"`
-		Password string `json:"password"`
+		IsmartID string `json:"ismartId" binding:"required"`
+		Password string `json:"password" binding:"required"`
 		Remark   string `json:"remark"`
 	}
 
@@ -75,6 +76,7 @@ func (c *BuildingController) Create() {
 	})
 }
 
+// 2,get
 func (c *BuildingController) Get() {
 	var searchQuery struct {
 		Search string `form:"search"`
@@ -118,6 +120,7 @@ func (c *BuildingController) Get() {
 	})
 }
 
+// 3,update
 func (c *BuildingController) Update() {
 	var form struct {
 		ID       uint   `json:"id" binding:"required"`
@@ -154,6 +157,7 @@ func (c *BuildingController) Update() {
 	c.ctx.JSON(200, gin.H{"message": "update building success"})
 }
 
+// 4,delete
 func (c *BuildingController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
@@ -171,6 +175,7 @@ func (c *BuildingController) Delete() {
 	c.ctx.JSON(200, gin.H{"message": "delete building success"})
 }
 
+// 5,get one
 func (c *BuildingController) GetOne() {
 	if c.jwtService == nil {
 		c.ctx.JSON(500, gin.H{
@@ -205,6 +210,7 @@ func (c *BuildingController) GetOne() {
 	})
 }
 
+// 6,login
 func (c *BuildingController) Login() {
 	var form struct {
 		IsmartID string `json:"ismartId" binding:"required"`
@@ -258,6 +264,7 @@ func (c *BuildingController) Login() {
 	})
 }
 
+// 7,get building advertisements
 func (c *BuildingController) GetBuildingAdvertisements() {
 	claims, exists := c.ctx.Get("claims")
 	if !exists {
@@ -293,6 +300,7 @@ func (c *BuildingController) GetBuildingAdvertisements() {
 	})
 }
 
+// 8,get building notices
 func (c *BuildingController) GetBuildingNotices() {
 	claims, exists := c.ctx.Get("claims")
 	if !exists {

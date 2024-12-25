@@ -15,6 +15,7 @@ import (
 
 type InterfaceFileController interface {
 	Create()
+	CreateMany()
 	Get()
 	Update()
 	Delete()
@@ -85,6 +86,62 @@ func (c *FileController) Create() {
 	c.ctx.JSON(200, gin.H{
 		"message": "create file success",
 		"data":    file,
+	})
+}
+
+func (c *FileController) CreateMany() {
+	var forms []struct {
+		Path         string                 `json:"path" binding:"required"`
+		Size         int64                  `json:"size" binding:"required"`
+		MimeType     string                 `json:"mimeType" binding:"required"`
+		Oss          string                 `json:"oss" binding:"required"`
+		UploaderType field.FileUploaderType `json:"uploaderType" binding:"required"`
+		UploaderID   uint                   `json:"uploaderId" binding:"required"`
+		Md5          string                 `json:"md5"`
+	}
+
+	if err := c.ctx.ShouldBindJSON(&forms); err != nil {
+		c.ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "invalid form",
+		})
+		return
+	}
+
+	var files []*base_models.File
+	for _, form := range forms {
+		if form.Md5 == "" {
+			data := form.Path + time.Now().String()
+			hash := md5.Sum([]byte(data))
+			form.Md5 = hex.EncodeToString(hash[:])
+		}
+
+		file := &base_models.File{
+			Path:         form.Path,
+			Size:         form.Size,
+			MimeType:     form.MimeType,
+			Oss:          form.Oss,
+			UploaderType: form.UploaderType,
+			UploaderID:   form.UploaderID,
+			Md5:          form.Md5,
+		}
+		files = append(files, file)
+	}
+
+	for _, file := range files {
+		if err := c.service.Create(file); err != nil {
+			c.ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "create file failed",
+				"file":    file,
+			})
+			return
+		}
+	}
+
+	c.ctx.JSON(200, gin.H{
+		"message": "create files success",
+		"data":    files,
 	})
 }
 

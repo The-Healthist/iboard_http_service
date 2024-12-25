@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -47,7 +48,7 @@ func (s *BuildingAdminService) Get(query map[string]interface{}, paginate map[st
 		db = db.Where("building_id = ?", buildingID)
 	}
 
-	if status, ok := query["status"].(*bool); ok && status != nil {
+	if status, ok := query["status"].(*field.Status); ok && status != nil {
 		db = db.Where("status = ?", *status)
 	}
 

@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// 1,create
 func CreateBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -20,6 +21,7 @@ func CreateBuilding(ctx *gin.Context) {
 	buildingController.Create()
 }
 
+// 2,get
 func GetBuildings(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -28,10 +30,10 @@ func GetBuildings(ctx *gin.Context) {
 		buildingService,
 		&jwtService,
 	)
-
 	buildingController.Get()
 }
 
+// 3,get one
 func GetOneBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -44,6 +46,7 @@ func GetOneBuilding(ctx *gin.Context) {
 	buildingController.GetOne()
 }
 
+// 4,update
 func UpdateBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -56,6 +59,7 @@ func UpdateBuilding(ctx *gin.Context) {
 	buildingController.Update()
 }
 
+// 5,delete
 func DeleteBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -68,6 +72,7 @@ func DeleteBuilding(ctx *gin.Context) {
 	buildingController.Delete()
 }
 
+// 6,login
 func LoginBuilding(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -80,6 +85,7 @@ func LoginBuilding(ctx *gin.Context) {
 	buildingController.Login()
 }
 
+// 7,get building advertisements
 func GetBuildingAdvertisements(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -92,6 +98,7 @@ func GetBuildingAdvertisements(ctx *gin.Context) {
 	buildingController.GetBuildingAdvertisements()
 }
 
+// 8,get building notices
 func GetBuildingNotices(ctx *gin.Context) {
 	buildingService := base_services.NewBuildingService(databases.DB_CONN)
 	jwtService := base_services.NewJWTService()
@@ -104,6 +111,7 @@ func GetBuildingNotices(ctx *gin.Context) {
 	buildingController.GetBuildingNotices()
 }
 
+// 9,register
 func RegisterBuildingView(r *gin.RouterGroup) {
 	// Public routes (no authentication required)
 	r.POST("/building/login", LoginBuilding)

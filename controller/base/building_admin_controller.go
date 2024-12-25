@@ -6,6 +6,7 @@ import (
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -38,14 +39,24 @@ func NewBuildingAdminController(
 
 func (c *BuildingAdminController) Create() {
 	var form struct {
-		Email    string `json:"email"      binding:"required"`
-		Password string `json:"password"   binding:"required"`
+		Email    string       `json:"email"    binding:"required"`
+		Password string       `json:"password" binding:"required"`
+		Status   field.Status `json:"status"   binding:"required"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
 		c.ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
+		})
+		return
+	}
+
+	// Validate status
+	if !field.IsValidStatus(string(form.Status)) {
+		c.ctx.JSON(400, gin.H{
+			"error":   "invalid status",
+			"message": "status must be one of: active, inactive, pending",
 		})
 		return
 	}
@@ -63,7 +74,7 @@ func (c *BuildingAdminController) Create() {
 	buildingAdmin := &base_models.BuildingAdmin{
 		Email:    form.Email,
 		Password: string(hashedPassword),
-		Status:   true,
+		Status:   form.Status,
 	}
 
 	if err := c.service.Create(buildingAdmin); err != nil {
@@ -83,8 +94,8 @@ func (c *BuildingAdminController) Create() {
 
 func (c *BuildingAdminController) Get() {
 	var searchQuery struct {
-		BuildingID string `form:"buildingId"`
-		Status     *bool  `form:"status"`
+		BuildingID string        `form:"buildingId"`
+		Status     *field.Status `form:"status"`
 	}
 	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
@@ -127,9 +138,9 @@ func (c *BuildingAdminController) Get() {
 
 func (c *BuildingAdminController) Update() {
 	var form struct {
-		ID       uint   `json:"id" binding:"required"`
-		Password string `json:"password"`
-		Status   *bool  `json:"status                                      "`
+		ID       uint          `json:"id" binding:"required"`
+		Password string        `json:"password"`
+		Status   *field.Status `json:"status"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {

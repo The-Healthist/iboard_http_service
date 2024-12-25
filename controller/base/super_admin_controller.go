@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
@@ -79,13 +78,18 @@ func (c *SuperAdminController) Login() {
 		return
 	}
 
-	claims := jwt.MapClaims{
-		"email":   form.Email,
-		"isAdmin": true,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	// 获取管理员信息
+	admin, err := c.service.GetSuperAdminByEmail(form.Email)
+	if err != nil {
+		c.ctx.JSON(500, gin.H{
+			"error":   err.Error(),
+			"message": "failed to get admin info",
+		})
+		return
 	}
 
-	token, err := (*c.jwtService).GenerateToken(claims)
+	// 使用新的方法生成包含 id 和 email 的 token
+	token, err := (*c.jwtService).GenerateSuperAdminToken(admin)
 	if err != nil {
 		c.ctx.JSON(500, gin.H{
 			"error":   err.Error(),
@@ -187,6 +191,38 @@ func (c *SuperAdminController) DeleteSuperAdmin() {
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+
+	// 获取当前登录的管理员信息
+	claims, exists := c.ctx.Get("claims")
+	if !exists {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	mapClaims, ok := claims.(jwt.MapClaims)
+	if !ok {
+		c.ctx.JSON(500, gin.H{"error": "invalid token claims format"})
+		return
+	}
+
+	// 从 claims 中获取当前管理员 ID
+	currentIDFloat, ok := mapClaims["id"].(float64) // JWT 中的数字会被解析为 float64
+	if !ok {
+		c.ctx.JSON(500, gin.H{"error": "invalid id in token"})
+		return
+	}
+	currentID := uint(currentIDFloat)
+
+	// 检查是否试图删除自己
+	for _, id := range form.IDs {
+		if id == currentID {
+			c.ctx.JSON(400, gin.H{
+				"error": "cannot delete yourself",
+				"id":    id,
+			})
+			return
+		}
 	}
 
 	if err := c.service.DeleteSuperAdmins(form.IDs); err != nil {

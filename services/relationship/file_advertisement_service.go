@@ -57,7 +57,7 @@ func (s *FileAdvertisementService) GetFileByAdvertisementID(advertisementID uint
 	if err := s.db.Preload("File").First(&advertisement, advertisementID).Error; err != nil {
 		return nil, err
 	}
-	return &advertisement.File, nil
+	return advertisement.File, nil
 }
 
 func (s *FileAdvertisementService) AdvertisementExists(advertisementID uint) (bool, error) {

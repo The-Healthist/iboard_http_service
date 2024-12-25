@@ -20,6 +20,7 @@ type IJWTService interface {
 	ValidateToken(token string) (*jwt.Token, error)
 	GenerateBuildingAdminToken(admin *base_models.BuildingAdmin) (string, error)
 	GenerateBuildingToken(building *base_models.Building) (string, error)
+	GenerateSuperAdminToken(admin *base_models.SuperAdmin) (string, error)
 }
 
 type JWTService struct {
@@ -75,6 +76,16 @@ func (s *JWTService) GenerateBuildingToken(building *base_models.Building) (stri
 		"ismartId":   building.IsmartID,
 		"isBuilding": true,
 		"exp":        time.Now().Add(time.Hour * 24).Unix(),
+	}
+	return s.GenerateToken(claims)
+}
+
+func (s *JWTService) GenerateSuperAdminToken(admin *base_models.SuperAdmin) (string, error) {
+	claims := jwt.MapClaims{
+		"id":      admin.ID,
+		"email":   admin.Email,
+		"isAdmin": true,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
 	}
 	return s.GenerateToken(claims)
 }

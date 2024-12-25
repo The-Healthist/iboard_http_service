@@ -39,7 +39,13 @@ func AuthorizeJWTAdmin() gin.HandlerFunc {
 		}
 
 		if token.Valid {
-			claims := token.Claims.(jwt.MapClaims)
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"message": "invalid token claims",
+				})
+				return
+			}
 
 			if claims["isAdmin"] == false {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -48,7 +54,9 @@ func AuthorizeJWTAdmin() gin.HandlerFunc {
 				return
 			}
 
+			// Set claims directly without conversion
 			c.Set("email", claims["email"])
+			c.Set("claims", claims)
 			c.Next()
 		} else {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{

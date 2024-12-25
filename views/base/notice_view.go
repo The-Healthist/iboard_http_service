@@ -62,9 +62,20 @@ func RegisterNoticeView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTAdmin())
 	{
 		r.POST("/notice", CreateNotice)
+		r.POST("/notices", CreateManyNotices)
 		r.GET("/notice", GetNotices)
 		r.GET("/notice/:id", GetOneNotice)
 		r.PUT("/notice", UpdateNotice)
 		r.DELETE("/notice", DeleteNotice)
 	}
+}
+
+func CreateManyNotices(ctx *gin.Context) {
+	noticeService := base_services.NewNoticeService(databases.DB_CONN)
+	noticeController := http_base_controller.NewNoticeController(
+		ctx,
+		noticeService,
+	)
+
+	noticeController.CreateMany()
 }

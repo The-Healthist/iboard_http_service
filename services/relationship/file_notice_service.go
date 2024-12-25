@@ -58,7 +58,7 @@ func (s *FileNoticeService) GetFileByNoticeID(noticeID uint) (*base_models.File,
 	if err := s.db.Preload("File").First(&notice, noticeID).Error; err != nil {
 		return nil, err
 	}
-	return &notice.File, nil
+	return notice.File, nil
 }
 
 func (s *FileNoticeService) NoticeExists(noticeID uint) (bool, error) {
