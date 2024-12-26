@@ -44,7 +44,7 @@ func (c *NoticeController) Create() {
 		Status      field.Status     `json:"status" binding:"required"`
 		StartTime   *time.Time       `json:"startTime" binding:"required"`
 		EndTime     *time.Time       `json:"endTime" binding:"required"`
-		IsPublic    bool             `json:"isPublic" binding:"required"`
+		IsPublic    bool             `json:"isPublic"`
 		Path        string           `json:"path" binding:"required"`
 		FileType    field.FileType   `json:"fileType"`
 	}
@@ -222,14 +222,14 @@ func (c *NoticeController) Get() {
 func (c *NoticeController) Update() {
 	var form struct {
 		ID          uint             `json:"id" binding:"required"`
-		Title       *string          `json:"title"`
-		Description *string          `json:"description"`
+		Title       string           `json:"title"`
+		Description string           `json:"description"`
 		Type        field.NoticeType `json:"type"`
 		Status      field.Status     `json:"status"`
 		StartTime   *time.Time       `json:"startTime"`
 		EndTime     *time.Time       `json:"endTime"`
 		IsPublic    *bool            `json:"isPublic"`
-		FileID      *uint            `json:"fileId"`
+		Path        string           `json:"path"`
 		FileType    field.FileType   `json:"fileType"`
 	}
 
@@ -238,49 +238,145 @@ func (c *NoticeController) Update() {
 		return
 	}
 
-	// Get existing notice to check current values
-	existingNotice, err := c.service.GetByID(form.ID)
+	// 获取原有的通知信息
+	notice, err := c.service.GetByID(form.ID)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Notice not found"})
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to get notice",
+			"message": err.Error(),
+		})
 		return
 	}
 
 	updates := map[string]interface{}{}
-	if form.Title != nil {
-		updates["title"] = *form.Title
+	if form.Title != "" {
+		updates["title"] = form.Title
 	}
-	if form.Description != nil {
-		updates["description"] = *form.Description
+	if form.Description != "" {
+		updates["description"] = form.Description
 	}
 	if form.Type != "" {
 		updates["type"] = form.Type
 	}
 	if form.Status != "" {
 		updates["status"] = form.Status
-	} else if existingNotice.Status == "" {
-		updates["status"] = field.Status("active")
 	}
 	if form.StartTime != nil {
-		updates["start_time"] = *form.StartTime
-	} else if existingNotice.StartTime.IsZero() {
-		updates["start_time"] = time.Now()
+		updates["start_time"] = form.StartTime
 	}
 	if form.EndTime != nil {
-		updates["end_time"] = *form.EndTime
-	} else if existingNotice.EndTime.IsZero() {
-		updates["end_time"] = time.Now().AddDate(1, 0, 0)
+		updates["end_time"] = form.EndTime
 	}
 	if form.IsPublic != nil {
 		updates["is_public"] = *form.IsPublic
-	}
-	if form.FileID != nil {
-		updates["file_id"] = *form.FileID
 	}
 	if form.FileType != "" {
 		updates["file_type"] = form.FileType
 	}
 
-	notice, err := c.service.Update(form.ID, updates)
+	// 如果提供了新的 path
+	if form.Path != "" {
+		// 开启事务
+		tx := databases.DB_CONN.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// 查找新的文件
+		var newFile base_models.File
+		if err := tx.Where("path = ?", form.Path).First(&newFile).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "File not found",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 保存旧文件ID
+		var oldFileID *uint
+		if notice.FileID != nil {
+			oldFileID = notice.FileID
+		}
+
+		// 1. 更新通知的文件ID
+		updates["file_id"] = newFile.ID
+		if err := tx.Model(&base_models.Notice{}).Where("id = ?", form.ID).Updates(updates).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to update notice",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 2. 如果有旧文件，检查是否需要删除
+		if oldFileID != nil {
+			// 检查这个文件是否还被其他地方引用
+			var adCount int64
+			var noticeCount int64
+			if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", oldFileID).Count(&adCount).Error; err != nil {
+				tx.Rollback()
+				c.ctx.JSON(400, gin.H{
+					"error":   "Failed to check advertisement references",
+					"message": err.Error(),
+				})
+				return
+			}
+			if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", oldFileID).Count(&noticeCount).Error; err != nil {
+				tx.Rollback()
+				c.ctx.JSON(400, gin.H{
+					"error":   "Failed to check notice references",
+					"message": err.Error(),
+				})
+				return
+			}
+
+			// 3. 如果没有其他引用，则删除文件
+			if adCount == 0 && noticeCount == 0 {
+				if err := tx.Delete(&base_models.File{}, "id = ?", oldFileID).Error; err != nil {
+					tx.Rollback()
+					c.ctx.JSON(400, gin.H{
+						"error":   "Failed to delete old file",
+						"message": err.Error(),
+					})
+					return
+				}
+			}
+		}
+
+		// 4. 获取更新后的通知信息
+		var updatedNotice base_models.Notice
+		if err := tx.Preload("File").First(&updatedNotice, form.ID).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to get updated notice",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 提交事务
+		if err := tx.Commit().Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to commit transaction",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		c.ctx.JSON(200, gin.H{
+			"message": "update notice success",
+			"data":    updatedNotice,
+		})
+		return
+	}
+
+	// 如果没有更新文件，则直接更新其他字段
+	updatedNotice, err := c.service.Update(form.ID, updates)
 	if err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -288,7 +384,7 @@ func (c *NoticeController) Update() {
 
 	c.ctx.JSON(200, gin.H{
 		"message": "update notice success",
-		"data":    notice,
+		"data":    updatedNotice,
 	})
 }
 
@@ -301,8 +397,105 @@ func (c *NoticeController) Delete() {
 		return
 	}
 
-	if err := c.service.Delete(form.IDs); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	// 开启事务
+	tx := databases.DB_CONN.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 1. 获取所有要删除的通知信息
+	var notices []base_models.Notice
+	if err := tx.Where("id IN ?", form.IDs).Find(&notices).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to get notices",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 2. 解除与建筑物的关联
+	if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id IN ?", form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind buildings",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 3. 收集所有关联的文件ID
+	var fileIDs []uint
+	for _, notice := range notices {
+		if notice.FileID != nil {
+			fileIDs = append(fileIDs, *notice.FileID)
+		}
+	}
+
+	// 4. 解除文件绑定
+	if err := tx.Model(&base_models.Notice{}).Where("id IN ?", form.IDs).Update("file_id", nil).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind files",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 5. 检查每个文件的引用并删除未被引用的文件
+	for _, fileID := range fileIDs {
+		var adCount int64
+		var noticeCount int64
+
+		if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", fileID).Count(&adCount).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to check advertisement references",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", fileID).Count(&noticeCount).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to check notice references",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		if adCount == 0 && noticeCount == 0 {
+			if err := tx.Delete(&base_models.File{}, "id = ?", fileID).Error; err != nil {
+				tx.Rollback()
+				c.ctx.JSON(400, gin.H{
+					"error":   "Failed to delete file",
+					"message": err.Error(),
+				})
+				return
+			}
+		}
+	}
+
+	// 6. 删除通知
+	if err := tx.Delete(&base_models.Notice{}, form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to delete notices",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to commit transaction",
+			"message": err.Error(),
+		})
 		return
 	}
 

@@ -1,6 +1,7 @@
 package http_base_controller
 
 import (
+	"log"
 	"strconv"
 	"time"
 
@@ -233,17 +234,15 @@ func (c *AdvertisementController) Get() {
 // 4,update
 func (c *AdvertisementController) Update() {
 	var form struct {
-		ID          uint                       `json:"id" binding:"required"`
-		Title       *string                    `json:"title"`
-		Description *string                    `json:"description"`
-		Type        field.AdvertisementType    `json:"type"`
-		Status      field.Status               `json:"status"`
-		Duration    *int                       `json:"duration"`
-		StartTime   *time.Time                 `json:"startTime"`
-		EndTime     *time.Time                 `json:"endTime"`
-		Display     field.AdvertisementDisplay `json:"display"`
-		FileID      *uint                      `json:"fileId"`
-		IsPublic    *bool                      `json:"isPublic"`
+		ID          uint                    `json:"id" binding:"required"`
+		Title       string                  `json:"title"`
+		Description string                  `json:"description"`
+		Type        field.AdvertisementType `json:"type"`
+		Status      field.Status            `json:"status"`
+		StartTime   *time.Time              `json:"startTime"`
+		EndTime     *time.Time              `json:"endTime"`
+		IsPublic    *bool                   `json:"isPublic"`
+		Path        string                  `json:"path"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&form); err != nil {
@@ -251,52 +250,142 @@ func (c *AdvertisementController) Update() {
 		return
 	}
 
-	// Get existing advertisement to check current values
-	existingAd, err := c.service.GetByID(form.ID)
+	// 获取原有的广告信息
+	advertisement, err := c.service.GetByID(form.ID)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Advertisement not found"})
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to get advertisement",
+			"message": err.Error(),
+		})
 		return
 	}
 
 	updates := map[string]interface{}{}
-	if form.Title != nil {
-		updates["title"] = *form.Title
+	if form.Title != "" {
+		updates["title"] = form.Title
 	}
-	if form.Description != nil {
-		updates["description"] = *form.Description
+	if form.Description != "" {
+		updates["description"] = form.Description
 	}
 	if form.Type != "" {
 		updates["type"] = form.Type
 	}
 	if form.Status != "" {
 		updates["status"] = form.Status
-	} else if existingAd.Status == "" {
-		updates["status"] = field.Status("active")
-	}
-	if form.Duration != nil {
-		updates["duration"] = *form.Duration
 	}
 	if form.StartTime != nil {
-		updates["start_time"] = *form.StartTime
-	} else if existingAd.StartTime.IsZero() {
-		updates["start_time"] = time.Now()
+		updates["start_time"] = form.StartTime
 	}
 	if form.EndTime != nil {
-		updates["end_time"] = *form.EndTime
-	} else if existingAd.EndTime.IsZero() {
-		updates["end_time"] = time.Now().AddDate(1, 0, 0)
-	}
-	if form.Display != "" {
-		updates["display"] = form.Display
-	}
-	if form.FileID != nil {
-		updates["file_id"] = *form.FileID
+		updates["end_time"] = form.EndTime
 	}
 	if form.IsPublic != nil {
 		updates["is_public"] = *form.IsPublic
 	}
 
-	advertisement, err := c.service.Update(form.ID, updates)
+	// 如果提供了新的 path
+	if form.Path != "" {
+		// 开启事务
+		tx := databases.DB_CONN.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// 查找新的文件
+		var newFile base_models.File
+		if err := tx.Where("path = ?", form.Path).First(&newFile).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "File not found",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 保存旧文件ID
+		var oldFileID *uint
+		if advertisement.FileID != nil {
+			oldFileID = advertisement.FileID
+		}
+
+		// 1. 更新广告的文件ID
+		updates["file_id"] = newFile.ID
+		if err := tx.Model(&base_models.Advertisement{}).Where("id = ?", form.ID).Updates(updates).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to update advertisement",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 2. 如果有旧文件，检查是否需要删除
+		if oldFileID != nil {
+			// 检查这个文件是否还被其他地方引用
+			var adCount int64
+			var noticeCount int64
+			if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", oldFileID).Count(&adCount).Error; err != nil {
+				tx.Rollback()
+				c.ctx.JSON(400, gin.H{
+					"error":   "Failed to check advertisement references",
+					"message": err.Error(),
+				})
+				return
+			}
+			if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", oldFileID).Count(&noticeCount).Error; err != nil {
+				tx.Rollback()
+				c.ctx.JSON(400, gin.H{
+					"error":   "Failed to check notice references",
+					"message": err.Error(),
+				})
+				return
+			}
+
+			// 3. 如果没有其他引用，则删除文件
+			if adCount == 0 && noticeCount == 0 {
+				if err := tx.Delete(&base_models.File{}, "id = ?", oldFileID).Error; err != nil {
+					tx.Rollback()
+					c.ctx.JSON(400, gin.H{
+						"error":   "Failed to delete old file",
+						"message": err.Error(),
+					})
+					return
+				}
+			}
+		}
+
+		// 4. 获取更新后的广告信息
+		var updatedAd base_models.Advertisement
+		if err := tx.Preload("File").First(&updatedAd, form.ID).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to get updated advertisement",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 提交事务
+		if err := tx.Commit().Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to commit transaction",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		c.ctx.JSON(200, gin.H{
+			"message": "update advertisement success",
+			"data":    updatedAd,
+		})
+		return
+	}
+
+	// 如果没有更新文件，则直接更新其他字段
+	updatedAd, err := c.service.Update(form.ID, updates)
 	if err != nil {
 		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -304,7 +393,7 @@ func (c *AdvertisementController) Update() {
 
 	c.ctx.JSON(200, gin.H{
 		"message": "update advertisement success",
-		"data":    advertisement,
+		"data":    updatedAd,
 	})
 }
 
@@ -319,8 +408,106 @@ func (c *AdvertisementController) Delete() {
 		return
 	}
 
-	if err := c.service.Delete(form.IDs); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	// 开启事务
+	tx := databases.DB_CONN.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 1. 获取所有要删除的广告信息
+	var advertisements []base_models.Advertisement
+	if err := tx.Where("id IN ?", form.IDs).Find(&advertisements).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to get advertisements",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 2. 解除与建筑物的关联
+	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE advertisement_id IN ?", form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind buildings",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 3. 收集所有关联的文件ID
+	var fileIDs []uint
+	for _, ad := range advertisements {
+		if ad.FileID != nil {
+			fileIDs = append(fileIDs, *ad.FileID)
+		}
+	}
+
+	// 4. 解除文件绑定
+	if err := tx.Model(&base_models.Advertisement{}).Where("id IN ?", form.IDs).Update("file_id", nil).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind files",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 5. 检查每个文件的引用并软删除未被引用的文件
+	for _, fileID := range fileIDs {
+		var adCount int64
+		var noticeCount int64
+
+		if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", fileID).Count(&adCount).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to check advertisement references",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", fileID).Count(&noticeCount).Error; err != nil {
+			tx.Rollback()
+			c.ctx.JSON(400, gin.H{
+				"error":   "Failed to check notice references",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		if adCount == 0 && noticeCount == 0 {
+			log.Println("fileID", fileID)
+			if err := tx.Delete(&base_models.File{}, "id = ?", fileID).Error; err != nil {
+				tx.Rollback()
+				c.ctx.JSON(400, gin.H{
+					"error":   "Failed to delete file",
+					"message": err.Error(),
+				})
+				return
+			}
+		}
+	}
+
+	// 6. 删除广告
+	if err := tx.Delete(&base_models.Advertisement{}, form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to delete advertisements",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to commit transaction",
+			"message": err.Error(),
+		})
 		return
 	}
 

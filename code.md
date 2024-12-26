@@ -53,36 +53,36 @@
   - update(name,!ismartId,!password,!remark)
   - get(pageSize,pageNum)
   - getOne(id)
-4. Advertisement Management(广告管理)
+### 4. Advertisement Management(广告管理)
   - add(title,!description,type,status,duration,startTime,endTime,isPublic,path)
   - update(id,!title,!description,!type,!status,!duration,!startTime,!endTime,!isPublic,!path)
   - delete(ids[])
   - get(pageSize,pageNum)
   - getOne(id)
-5. Notice Management(通知管理)
+### 5. Notice Management(通知管理)
   - add(title,!description,type,status,startTime,endTime,isPublic,path,fileTy)
   - addMany([{title,type,status,startTime,endTime,isPublic,path,duration}])
   - update(id,!title,!type,!status,!startTime,!endTime,!isPublic,!path)
   - delete(ids[])
   - get(pageSize,pageNum)
   - getOne(id)
-6. File Management(文件管理)
+### 6. File Management(文件管理)
   - getUploadParams(fileName)
   - uploadCallback(fileName,size)
   - delete(ids[])
   - get(pageSize,pageNum)
   - getOne(id)
-7. Building-Advertisement Relationship(楼宇广告关联管理)
+### 7. Building-Advertisement Relationship(楼宇广告关联管理)
   - bind(buildingId,advertisementId)(advertisementIds[],buildingIds[])
   - unbind(buildingId,advertisementId)(advertisementId,buildingIds[])
   - getBuildingAdvertisements(buildingId)
   - getAdvertisementBuildings(advertisementId)
-8. Building-Notice Relationship(楼宇通知关联管理)
+### 8. Building-Notice Relationship(楼宇通知关联管理)
   - bind(buildingId,noticeId)(noticeIds[],buildingIds[])
   - unbind(buildingIds[],noticeId),
   - getBuildingNotices(buildingId)  
   - getNoticeBuildings(noticeId)
-9. Building-Admin Relationship(楼宇管理员关联管理)
+### 9. Building-Admin Relationship(楼宇管理员关联管理)
   - bind(buildingId,adminId)
   - unbind(buildingId,adminId)
   - getBuildingAdmins(buildingId)
@@ -91,3 +91,9 @@
 
 ## BuildingAdmin 功能模块
 ## BuildingAdmin login 功能为下面的接口添加token
+
+## building 功能模块
+  - login(ismartId,password)
+  - get_advertisements_building
+  根据
+  - get_notices_building 

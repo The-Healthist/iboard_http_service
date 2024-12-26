@@ -3,6 +3,7 @@ package http_base_controller
 import (
 	"strconv"
 
+	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/utils"
@@ -167,8 +168,72 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
-	if err := c.service.Delete(form.IDs); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	// 开启事务
+	tx := databases.DB_CONN.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 1. 获取要删除的建筑物信息
+	var buildings []base_models.Building
+	if err := tx.Where("id IN ?", form.IDs).Find(&buildings).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to get buildings",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 2. 解除与广告的关联
+	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind advertisements",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 3. 解除与通知的关联
+	if err := tx.Exec("DELETE FROM notice_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind notices",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 4. 解除与管理员的关联
+	if err := tx.Exec("DELETE FROM building_admins_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind admins",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 5. 删除建筑物
+	if err := tx.Delete(&base_models.Building{}, form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to delete buildings",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		tx.Rollback()
+		c.ctx.JSON(400, gin.H{
+			"error":   "Failed to commit transaction",
+			"message": err.Error(),
+		})
 		return
 	}
 
