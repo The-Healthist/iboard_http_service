@@ -5,6 +5,7 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"gorm.io/gorm"
 )
 
@@ -37,6 +38,9 @@ func (s *BuildingAdminNoticeService) Create(notice *base_models.Notice, email st
 	if err != nil {
 		return err
 	}
+
+	// 设置 IsPublic 为 false
+	notice.IsPublic = false
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(notice).Error; err != nil {
@@ -79,11 +83,15 @@ func (s *BuildingAdminNoticeService) Get(email string, query map[string]interfac
 	pageNum := paginate["pageNum"].(int)
 	offset := (pageNum - 1) * pageSize
 
-	if err := db.Preload("File").
+	if err := db.Select("id, created_at, updated_at, deleted_at, title, description, type, status, start_time, end_time, file_id, file_type, is_public").
 		Limit(pageSize).
 		Offset(offset).
 		Find(&notices).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
+	}
+
+	for i := range notices {
+		notices[i].File = nil
 	}
 
 	return notices, base_models.PaginationResult{
@@ -94,11 +102,31 @@ func (s *BuildingAdminNoticeService) Get(email string, query map[string]interfac
 }
 
 func (s *BuildingAdminNoticeService) Update(id uint, email string, updates map[string]interface{}) error {
+	var notice base_models.Notice
+	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
+		return err
+	}
+
+	// 检查 isPublic
+	if !notice.IsPublic {
+		// 检查 file.uploaderType
+		if notice.File != nil && notice.File.UploaderType != field.UploaderTypeBuildingAdmin {
+			return errors.New("no permission to update this notice: file was not uploaded by building admin")
+		}
+	} else {
+		return errors.New("no permission to update public notice")
+	}
+
 	// 检查权限
 	if exists, err := s.checkPermission(id, email); err != nil {
 		return err
 	} else if !exists {
 		return errors.New("notice not found or no permission")
+	}
+
+	// 确保不能修改为公开通知
+	if isPublic, ok := updates["isPublic"].(bool); ok && isPublic {
+		return errors.New("building admin cannot create public notices")
 	}
 
 	result := s.db.Model(&base_models.Notice{}).Where("id = ?", id).Updates(updates)
@@ -109,6 +137,21 @@ func (s *BuildingAdminNoticeService) Update(id uint, email string, updates map[s
 }
 
 func (s *BuildingAdminNoticeService) Delete(id uint, email string) error {
+	var notice base_models.Notice
+	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
+		return err
+	}
+
+	// 检查 isPublic
+	if !notice.IsPublic {
+		// 检查 file.uploaderType
+		if notice.File != nil && notice.File.UploaderType != field.UploaderTypeBuildingAdmin {
+			return errors.New("no permission to delete this notice: file was not uploaded by building admin")
+		}
+	} else {
+		return errors.New("no permission to delete public notice")
+	}
+
 	// 检查权限
 	if exists, err := s.checkPermission(id, email); err != nil {
 		return err
@@ -132,6 +175,7 @@ func (s *BuildingAdminNoticeService) GetByID(id uint, email string) (*base_model
 	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
 		return nil, err
 	}
+
 	return &notice, nil
 }
 

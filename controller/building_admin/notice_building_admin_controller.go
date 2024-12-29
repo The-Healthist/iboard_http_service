@@ -4,22 +4,29 @@ import (
 	"strconv"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
+	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	building_admin_services "github.com/The-Healthist/iboard_http_service/services/building_admin"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildingAdminNoticeController struct {
-	ctx     *gin.Context
-	service building_admin_services.InterfaceBuildingAdminNoticeService
+	ctx           *gin.Context
+	service       building_admin_services.InterfaceBuildingAdminNoticeService
+	uploadService base_services.IUploadService
+	fileService   base_services.InterfaceFileService
 }
 
 func NewBuildingAdminNoticeController(
 	ctx *gin.Context,
 	service building_admin_services.InterfaceBuildingAdminNoticeService,
+	uploadService base_services.IUploadService,
+	fileService base_services.InterfaceFileService,
 ) *BuildingAdminNoticeController {
 	return &BuildingAdminNoticeController{
-		ctx:     ctx,
-		service: service,
+		ctx:           ctx,
+		service:       service,
+		uploadService: uploadService,
+		fileService:   fileService,
 	}
 }
 
@@ -31,9 +38,23 @@ func (c *BuildingAdminNoticeController) GetNotices() {
 		query["type"] = noticeType
 	}
 
+	// Parse pagination parameters
+	pageSize := 10
+	pageNum := 1
+	if size := c.ctx.Query("pageSize"); size != "" {
+		if parsed, err := strconv.Atoi(size); err == nil && parsed > 0 {
+			pageSize = parsed
+		}
+	}
+	if num := c.ctx.Query("pageNum"); num != "" {
+		if parsed, err := strconv.Atoi(num); err == nil && parsed > 0 {
+			pageNum = parsed
+		}
+	}
+
 	paginate := map[string]interface{}{
-		"pageSize": 10,
-		"pageNum":  1,
+		"pageSize": pageSize,
+		"pageNum":  pageNum,
 		"desc":     true,
 	}
 
@@ -76,6 +97,9 @@ func (c *BuildingAdminNoticeController) CreateNotice() {
 		return
 	}
 
+	// 设置 IsPublic 为 false
+	notice.IsPublic = false
+
 	if err := c.service.Create(&notice, email); err != nil {
 		c.ctx.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -102,6 +126,12 @@ func (c *BuildingAdminNoticeController) UpdateNotice() {
 		return
 	}
 
+	// 确保不能修改为公开通知
+	if isPublic, ok := updates["isPublic"].(bool); ok && isPublic {
+		c.ctx.JSON(403, gin.H{"error": "Building admin cannot create public notices"})
+		return
+	}
+
 	if err := c.service.Update(uint(id), email, updates); err != nil {
 		c.ctx.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -125,4 +155,24 @@ func (c *BuildingAdminNoticeController) DeleteNotice() {
 	}
 
 	c.ctx.JSON(200, gin.H{"message": "Notice deleted successfully"})
+}
+
+func (c *BuildingAdminNoticeController) GetUploadParams() {
+	var req struct {
+		FileName string `json:"fileName" binding:"required"`
+	}
+
+	if err := c.ctx.ShouldBindJSON(&req); err != nil {
+		c.ctx.JSON(400, gin.H{"error": "Missing required parameters"})
+		return
+	}
+
+	// Get upload policy
+	policy, err := c.uploadService.GetUploadParams(req.FileName)
+	if err != nil {
+		c.ctx.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.ctx.JSON(200, gin.H{"data": policy})
 }

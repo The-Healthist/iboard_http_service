@@ -92,8 +92,8 @@
 ## BuildingAdmin 功能模块
 ## BuildingAdmin login 功能为下面的接口添加token
 
+
 ## building 功能模块
   - login(ismartId,password)
   - get_advertisements_building
-  根据
   - get_notices_building 

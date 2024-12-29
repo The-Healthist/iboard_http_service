@@ -64,6 +64,8 @@ func (c *UploadController) GetUploadParams() {
 	var uploaderEmail string
 
 	isAdmin, _ := mapClaims["isAdmin"].(bool)
+	isBuildingAdmin, _ := mapClaims["isBuildingAdmin"].(bool)
+
 	if isAdmin {
 		// Handle super admin case
 		if id, ok := mapClaims["id"].(float64); ok {
@@ -80,9 +82,9 @@ func (c *UploadController) GetUploadParams() {
 			})
 			return
 		}
-	} else {
+	} else if isBuildingAdmin {
 		// Handle building admin case
-		if id, ok := mapClaims["buildingId"].(float64); ok {
+		if id, ok := mapClaims["id"].(float64); ok {
 			uploaderID = uint(id)
 			uploaderType = "buildingAdmin"
 			if email, ok := mapClaims["email"].(string); ok {
@@ -90,12 +92,18 @@ func (c *UploadController) GetUploadParams() {
 			}
 			log.Printf("Identified as BuildingAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
 		} else {
-			log.Println("Invalid building ID in token")
+			log.Println("Invalid building admin ID in token")
 			c.ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid building ID",
+				"error": "Invalid building admin ID",
 			})
 			return
 		}
+	} else {
+		log.Println("Invalid uploader type")
+		c.ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid uploader type",
+		})
+		return
 	}
 
 	// Save uploader info to cache

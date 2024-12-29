@@ -49,9 +49,7 @@ func RegisterBuildingAdminFileView(r *gin.RouterGroup) {
 	{
 		r.GET("/files", GetFiles)
 		r.GET("/files/:id", GetFile)
-		r.POST("/files/upload", UploadFile)
 		r.PUT("/files/:id", UpdateFile)
 		r.DELETE("/files/:id", DeleteFile)
-		r.GET("/files/:id/download", DownloadFile)
 	}
 }

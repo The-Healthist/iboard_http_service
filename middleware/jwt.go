@@ -108,6 +108,7 @@ func AuthorizeJWTStaff() gin.HandlerFunc {
 		}
 	}
 }
+
 func AuthorizeJWTBuildingAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -203,6 +204,59 @@ func AuthorizeJWTBuilding() gin.HandlerFunc {
 
 		// Set claims in context for later use
 		c.Set("claims", claimsMap)
+		c.Next()
+	}
+}
+
+// AuthorizeJWTUpload is a middleware that authorizes both superadmin and buildingadmin tokens
+func AuthorizeJWTUpload() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Authorization header is required",
+			})
+			return
+		}
+
+		tokenString := extractToken(authHeader)
+		if tokenString == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid token format",
+			})
+			return
+		}
+
+		token, err := base_services.NewJWTService().ValidateToken(tokenString)
+		if err != nil || !token.Valid {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid or expired token",
+			})
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid token claims",
+			})
+			return
+		}
+
+		// Check if the token is either for a superadmin or buildingadmin
+		isAdmin, _ := claims["isAdmin"].(bool)
+		isBuildingAdmin, _ := claims["isBuildingAdmin"].(bool)
+
+		if !isAdmin && !isBuildingAdmin {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "Insufficient permissions",
+			})
+			return
+		}
+
+		// Set claims in context for later use
+		c.Set("claims", claims)
+		c.Set("email", claims["email"])
 		c.Next()
 	}
 }

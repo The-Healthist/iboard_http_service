@@ -23,6 +23,6 @@ func UploadCallback(ctx *gin.Context) {
 }
 
 func RegisterUploadView(r *gin.RouterGroup) {
-	r.POST("/upload/params", middlewares.AuthorizeJWTAdmin(), GetUploadParams)
+	r.POST("/upload/params", middlewares.AuthorizeJWTUpload(), GetUploadParams)
 	r.POST("/upload/callback", UploadCallback)
 }
