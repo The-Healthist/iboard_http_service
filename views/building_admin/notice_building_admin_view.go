@@ -12,12 +12,13 @@ import (
 
 func GetNotices(ctx *gin.Context) {
 	buildingAdminService := relationship_service.NewBuildingAdminBuildingService(databases.DB_CONN)
+	fileService := base_services.NewFileService(databases.DB_CONN)
 	service := building_admin_services.NewBuildingAdminNoticeService(
 		databases.DB_CONN,
 		buildingAdminService,
+		fileService,
 	)
 	uploadService := base_services.NewUploadService(databases.DB_CONN, databases.REDIS_CONN)
-	fileService := base_services.NewFileService(databases.DB_CONN)
 	controller := building_admin_controllers.NewBuildingAdminNoticeController(
 		ctx,
 		service,
@@ -29,12 +30,13 @@ func GetNotices(ctx *gin.Context) {
 
 func GetNotice(ctx *gin.Context) {
 	buildingAdminService := relationship_service.NewBuildingAdminBuildingService(databases.DB_CONN)
+	fileService := base_services.NewFileService(databases.DB_CONN)
 	service := building_admin_services.NewBuildingAdminNoticeService(
 		databases.DB_CONN,
 		buildingAdminService,
+		fileService,
 	)
 	uploadService := base_services.NewUploadService(databases.DB_CONN, databases.REDIS_CONN)
-	fileService := base_services.NewFileService(databases.DB_CONN)
 	controller := building_admin_controllers.NewBuildingAdminNoticeController(
 		ctx,
 		service,
@@ -46,12 +48,13 @@ func GetNotice(ctx *gin.Context) {
 
 func CreateNotice(ctx *gin.Context) {
 	buildingAdminService := relationship_service.NewBuildingAdminBuildingService(databases.DB_CONN)
+	fileService := base_services.NewFileService(databases.DB_CONN)
 	service := building_admin_services.NewBuildingAdminNoticeService(
 		databases.DB_CONN,
 		buildingAdminService,
+		fileService,
 	)
 	uploadService := base_services.NewUploadService(databases.DB_CONN, databases.REDIS_CONN)
-	fileService := base_services.NewFileService(databases.DB_CONN)
 	controller := building_admin_controllers.NewBuildingAdminNoticeController(
 		ctx,
 		service,
@@ -63,12 +66,13 @@ func CreateNotice(ctx *gin.Context) {
 
 func UpdateNotice(ctx *gin.Context) {
 	buildingAdminService := relationship_service.NewBuildingAdminBuildingService(databases.DB_CONN)
+	fileService := base_services.NewFileService(databases.DB_CONN)
 	service := building_admin_services.NewBuildingAdminNoticeService(
 		databases.DB_CONN,
 		buildingAdminService,
+		fileService,
 	)
 	uploadService := base_services.NewUploadService(databases.DB_CONN, databases.REDIS_CONN)
-	fileService := base_services.NewFileService(databases.DB_CONN)
 	controller := building_admin_controllers.NewBuildingAdminNoticeController(
 		ctx,
 		service,
@@ -80,12 +84,13 @@ func UpdateNotice(ctx *gin.Context) {
 
 func DeleteNotice(ctx *gin.Context) {
 	buildingAdminService := relationship_service.NewBuildingAdminBuildingService(databases.DB_CONN)
+	fileService := base_services.NewFileService(databases.DB_CONN)
 	service := building_admin_services.NewBuildingAdminNoticeService(
 		databases.DB_CONN,
 		buildingAdminService,
+		fileService,
 	)
 	uploadService := base_services.NewUploadService(databases.DB_CONN, databases.REDIS_CONN)
-	fileService := base_services.NewFileService(databases.DB_CONN)
 	controller := building_admin_controllers.NewBuildingAdminNoticeController(
 		ctx,
 		service,
@@ -97,12 +102,13 @@ func DeleteNotice(ctx *gin.Context) {
 
 func GetUploadParams(ctx *gin.Context) {
 	buildingAdminService := relationship_service.NewBuildingAdminBuildingService(databases.DB_CONN)
+	fileService := base_services.NewFileService(databases.DB_CONN)
 	service := building_admin_services.NewBuildingAdminNoticeService(
 		databases.DB_CONN,
 		buildingAdminService,
+		fileService,
 	)
 	uploadService := base_services.NewUploadService(databases.DB_CONN, databases.REDIS_CONN)
-	fileService := base_services.NewFileService(databases.DB_CONN)
 	controller := building_admin_controllers.NewBuildingAdminNoticeController(
 		ctx,
 		service,
@@ -115,11 +121,10 @@ func GetUploadParams(ctx *gin.Context) {
 func RegisterBuildingAdminNoticeView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTBuildingAdmin())
 	{
-		r.GET("/notices", GetNotices)
-		r.GET("/notices/:id", GetNotice)
-		r.POST("/notices", CreateNotice)
-		r.PUT("/notices/:id", UpdateNotice)
-		r.DELETE("/notices/:id", DeleteNotice)
-		r.POST("/notices/upload/params", GetUploadParams)
+		r.GET("/notice", GetNotices)
+		r.GET("/notice/:id", GetNotice)
+		r.POST("/notice", CreateNotice)
+		r.PUT("/notice/:id", UpdateNotice)
+		r.DELETE("/notice/:id", DeleteNotice)
 	}
 }

@@ -29,7 +29,7 @@ func NewBuildingAdminAuthController(
 func (c *BuildingAdminAuthController) Login() {
 	var loginDTO struct {
 		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required"`
 	}
 
 	if err := c.ctx.ShouldBindJSON(&loginDTO); err != nil {

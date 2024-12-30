@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
+	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"gorm.io/gorm"
@@ -20,23 +21,37 @@ type InterfaceBuildingAdminNoticeService interface {
 type BuildingAdminNoticeService struct {
 	db                   *gorm.DB
 	buildingAdminService relationship_service.InterfaceBuildingAdminBuildingService
+	fileService          base_services.InterfaceFileService
 }
 
 func NewBuildingAdminNoticeService(
 	db *gorm.DB,
 	buildingAdminService relationship_service.InterfaceBuildingAdminBuildingService,
+	fileService base_services.InterfaceFileService,
 ) InterfaceBuildingAdminNoticeService {
 	return &BuildingAdminNoticeService{
 		db:                   db,
 		buildingAdminService: buildingAdminService,
+		fileService:          fileService,
 	}
 }
 
 func (s *BuildingAdminNoticeService) Create(notice *base_models.Notice, email string) error {
-	// 检查管理员是否有权限
+	// 获取管理员的建筑物
 	buildings, err := s.buildingAdminService.GetBuildingsByAdminEmail(email)
 	if err != nil {
 		return err
+	}
+
+	// 验证文件是否存在且上传者类型是否正确
+	if notice.FileID != nil {
+		var file base_models.File
+		if err := s.db.First(&file, notice.FileID).Error; err != nil {
+			return errors.New("file not found")
+		}
+		if file.UploaderType != field.UploaderTypeBuildingAdmin {
+			return errors.New("file uploader type must be buildingAdmin")
+		}
 	}
 
 	// 设置 IsPublic 为 false
@@ -75,6 +90,11 @@ func (s *BuildingAdminNoticeService) Get(email string, query map[string]interfac
 		Where("notice_buildings.building_id IN ?", buildingIDs).
 		Group("notices.id")
 
+	// 添加查询条件
+	for key, value := range query {
+		db = db.Where(key+" = ?", value)
+	}
+
 	if err := db.Count(&total).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
 	}
@@ -83,15 +103,11 @@ func (s *BuildingAdminNoticeService) Get(email string, query map[string]interfac
 	pageNum := paginate["pageNum"].(int)
 	offset := (pageNum - 1) * pageSize
 
-	if err := db.Select("id, created_at, updated_at, deleted_at, title, description, type, status, start_time, end_time, file_id, file_type, is_public").
+	if err := db.Preload("File").
 		Limit(pageSize).
 		Offset(offset).
 		Find(&notices).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
-	}
-
-	for i := range notices {
-		notices[i].File = nil
 	}
 
 	return notices, base_models.PaginationResult{
@@ -102,95 +118,142 @@ func (s *BuildingAdminNoticeService) Get(email string, query map[string]interfac
 }
 
 func (s *BuildingAdminNoticeService) Update(id uint, email string, updates map[string]interface{}) error {
-	var notice base_models.Notice
-	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
+	// 检查通知是否存在且属于该管理员
+	notice, err := s.GetByID(id, email)
+	if err != nil {
 		return err
 	}
 
 	// 检查 isPublic
-	if !notice.IsPublic {
-		// 检查 file.uploaderType
-		if notice.File != nil && notice.File.UploaderType != field.UploaderTypeBuildingAdmin {
-			return errors.New("no permission to update this notice: file was not uploaded by building admin")
+	if notice.IsPublic {
+		return errors.New("cannot update public notice")
+	}
+
+	// 检查文件上传者类型
+	if notice.FileID != nil {
+		var file base_models.File
+		if err := s.db.First(&file, notice.FileID).Error; err != nil {
+			return err
 		}
-	} else {
-		return errors.New("no permission to update public notice")
+		if file.UploaderType != field.UploaderTypeBuildingAdmin {
+			return errors.New("cannot update notice with non-buildingAdmin file")
+		}
 	}
 
-	// 检查权限
-	if exists, err := s.checkPermission(id, email); err != nil {
-		return err
-	} else if !exists {
-		return errors.New("notice not found or no permission")
+	// 如果更新包含新的文件ID，检查新文件
+	if newFileID, ok := updates["file_id"].(uint); ok {
+		var newFile base_models.File
+		if err := s.db.First(&newFile, newFileID).Error; err != nil {
+			return errors.New("new file not found")
+		}
+		if newFile.UploaderType != field.UploaderTypeBuildingAdmin {
+			return errors.New("new file uploader type must be buildingAdmin")
+		}
+
+		// 检查并可能删除旧文件
+		if notice.FileID != nil {
+			if err := s.checkAndDeleteFile(*notice.FileID); err != nil {
+				return err
+			}
+		}
 	}
 
-	// 确保不能修改为公开通知
-	if isPublic, ok := updates["isPublic"].(bool); ok && isPublic {
-		return errors.New("building admin cannot create public notices")
+	// 不允许更新 isPublic 为 true
+	if isPublic, ok := updates["is_public"].(bool); ok && isPublic {
+		return errors.New("cannot set isPublic to true")
 	}
 
-	result := s.db.Model(&base_models.Notice{}).Where("id = ?", id).Updates(updates)
-	if result.Error != nil {
-		return result.Error
-	}
-	return nil
+	return s.db.Model(&base_models.Notice{}).Where("id = ?", id).Updates(updates).Error
 }
 
 func (s *BuildingAdminNoticeService) Delete(id uint, email string) error {
-	var notice base_models.Notice
-	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
+	// 检查通知是否存在且属于该管理员
+	notice, err := s.GetByID(id, email)
+	if err != nil {
 		return err
 	}
 
 	// 检查 isPublic
-	if !notice.IsPublic {
-		// 检查 file.uploaderType
-		if notice.File != nil && notice.File.UploaderType != field.UploaderTypeBuildingAdmin {
-			return errors.New("no permission to delete this notice: file was not uploaded by building admin")
+	if notice.IsPublic {
+		return errors.New("cannot delete public notice")
+	}
+
+	// 检查文件上传者类型
+	if notice.FileID != nil {
+		var file base_models.File
+		if err := s.db.First(&file, notice.FileID).Error; err != nil {
+			return err
 		}
-	} else {
-		return errors.New("no permission to delete public notice")
+		if file.UploaderType != field.UploaderTypeBuildingAdmin {
+			return errors.New("cannot delete notice with non-buildingAdmin file")
+		}
 	}
 
-	// 检查权限
-	if exists, err := s.checkPermission(id, email); err != nil {
-		return err
-	} else if !exists {
-		return errors.New("notice not found or no permission")
-	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 删除通知
+		if err := tx.Delete(&base_models.Notice{}, id).Error; err != nil {
+			return err
+		}
 
-	return s.db.Delete(&base_models.Notice{}, id).Error
+		// 检查并可能删除文件
+		if notice.FileID != nil {
+			if err := s.checkAndDeleteFile(*notice.FileID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func (s *BuildingAdminNoticeService) GetByID(id uint, email string) (*base_models.Notice, error) {
 	var notice base_models.Notice
 
-	// 检查权限
-	if exists, err := s.checkPermission(id, email); err != nil {
+	// 获取管理员的建筑物
+	buildings, err := s.buildingAdminService.GetBuildingsByAdminEmail(email)
+	if err != nil {
 		return nil, err
-	} else if !exists {
-		return nil, errors.New("notice not found or no permission")
 	}
 
-	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
+	var buildingIDs []uint
+	for _, b := range buildings {
+		buildingIDs = append(buildingIDs, b.ID)
+	}
+
+	err = s.db.Preload("File").
+		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notices.id = ? AND notice_buildings.building_id IN ?", id, buildingIDs).
+		First(&notice).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("notice not found or no permission")
+		}
 		return nil, err
 	}
 
 	return &notice, nil
 }
 
-// 检查管理员是否有权限操作该通知
-func (s *BuildingAdminNoticeService) checkPermission(noticeID uint, email string) (bool, error) {
-	var count int64
-	err := s.db.Model(&base_models.Notice{}).
-		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
-		Joins("JOIN building_admin_buildings ON notice_buildings.building_id = building_admin_buildings.building_id").
-		Joins("JOIN building_admins ON building_admin_buildings.building_admin_id = building_admins.id").
-		Where("notices.id = ? AND building_admins.email = ?", noticeID, email).
-		Count(&count).Error
+func (s *BuildingAdminNoticeService) checkAndDeleteFile(fileID uint) error {
+	// 检查文件是否还被其他广告或通知使用
+	var advertisementCount int64
+	var noticeCount int64
 
-	if err != nil {
-		return false, err
+	if err := s.db.Model(&base_models.Advertisement{}).Where("file_id = ?", fileID).Count(&advertisementCount).Error; err != nil {
+		return err
 	}
-	return count > 0, nil
+
+	if err := s.db.Model(&base_models.Notice{}).Where("file_id = ?", fileID).Count(&noticeCount).Error; err != nil {
+		return err
+	}
+
+	// 如果文件没有其他引用，则删除文件
+	if advertisementCount == 0 && noticeCount == 0 {
+		if err := s.fileService.Delete([]uint{fileID}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

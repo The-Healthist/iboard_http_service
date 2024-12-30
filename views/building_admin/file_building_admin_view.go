@@ -47,9 +47,11 @@ func DownloadFile(ctx *gin.Context) {
 func RegisterBuildingAdminFileView(r *gin.RouterGroup) {
 	r.Use(middlewares.AuthorizeJWTBuildingAdmin())
 	{
-		r.GET("/files", GetFiles)
-		r.GET("/files/:id", GetFile)
-		r.PUT("/files/:id", UpdateFile)
-		r.DELETE("/files/:id", DeleteFile)
+		r.GET("/file", GetFiles)
+		r.GET("/file/:id", GetFile)
+		r.POST("/file", UploadFile)
+		r.PUT("/file/:id", UpdateFile)
+		r.DELETE("/file/:id", DeleteFile)
+		r.GET("/file/:id/download", DownloadFile)
 	}
 }

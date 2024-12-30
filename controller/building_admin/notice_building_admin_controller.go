@@ -2,10 +2,13 @@ package building_admin_controllers
 
 import (
 	"strconv"
+	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	building_admin_services "github.com/The-Healthist/iboard_http_service/services/building_admin"
+	"github.com/The-Healthist/iboard_http_service/utils/field"
+	"github.com/The-Healthist/iboard_http_service/utils/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,30 +35,37 @@ func NewBuildingAdminNoticeController(
 
 func (c *BuildingAdminNoticeController) GetNotices() {
 	email := c.ctx.GetString("email")
+	if email == "" {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
 
+	// 处理分页参数
+	pageSize, _ := strconv.Atoi(c.ctx.DefaultQuery("pageSize", "10"))
+	pageNum, _ := strconv.Atoi(c.ctx.DefaultQuery("pageNum", "1"))
+	desc := c.ctx.DefaultQuery("desc", "true") == "true"
+
+	// 处理查询参数
 	query := make(map[string]interface{})
 	if noticeType := c.ctx.Query("type"); noticeType != "" {
-		query["type"] = noticeType
+		query["type"] = field.NoticeType(noticeType)
 	}
-
-	// Parse pagination parameters
-	pageSize := 10
-	pageNum := 1
-	if size := c.ctx.Query("pageSize"); size != "" {
-		if parsed, err := strconv.Atoi(size); err == nil && parsed > 0 {
-			pageSize = parsed
+	if status := c.ctx.Query("status"); status != "" {
+		query["status"] = field.Status(status)
+	}
+	if fileID := c.ctx.Query("fileId"); fileID != "" {
+		if id, err := strconv.ParseUint(fileID, 10, 64); err == nil {
+			query["fileId"] = uint(id)
 		}
 	}
-	if num := c.ctx.Query("pageNum"); num != "" {
-		if parsed, err := strconv.Atoi(num); err == nil && parsed > 0 {
-			pageNum = parsed
-		}
+	if fileType := c.ctx.Query("fileType"); fileType != "" {
+		query["fileType"] = field.FileType(fileType)
 	}
 
 	paginate := map[string]interface{}{
 		"pageSize": pageSize,
 		"pageNum":  pageNum,
-		"desc":     true,
+		"desc":     desc,
 	}
 
 	notices, pagination, err := c.service.Get(email, query, paginate)
@@ -72,36 +82,66 @@ func (c *BuildingAdminNoticeController) GetNotices() {
 
 func (c *BuildingAdminNoticeController) GetNotice() {
 	email := c.ctx.GetString("email")
+	if email == "" {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	idStr := c.ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid notice ID"})
+		c.ctx.JSON(400, gin.H{"error": "invalid notice ID"})
 		return
 	}
 
 	notice, err := c.service.GetByID(uint(id), email)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": err.Error()})
+		c.ctx.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.ctx.JSON(200, gin.H{"data": notice})
 }
 
+type CreateNoticeRequest struct {
+	Title       string           `json:"title" binding:"required"`
+	Description string           `json:"description"`
+	Type        field.NoticeType `json:"type" binding:"required"`
+	Status      field.Status     `json:"status" binding:"required"`
+	StartTime   *time.Time       `json:"startTime" binding:"required"`
+	EndTime     *time.Time       `json:"endTime" binding:"required"`
+	IsPublic    bool             `json:"isPublic"`
+	FileID      *uint            `json:"fileId"`
+	FileType    field.FileType   `json:"fileType"`
+}
+
 func (c *BuildingAdminNoticeController) CreateNotice() {
 	email := c.ctx.GetString("email")
-
-	var notice base_models.Notice
-	if err := c.ctx.ShouldBindJSON(&notice); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if email == "" {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	// 设置 IsPublic 为 false
-	notice.IsPublic = false
+	var req CreateNoticeRequest
+	if err := c.ctx.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c.ctx, err)
+		return
+	}
 
-	if err := c.service.Create(&notice, email); err != nil {
-		c.ctx.JSON(500, gin.H{"error": err.Error()})
+	notice := &base_models.Notice{
+		Title:       req.Title,
+		Description: req.Description,
+		Type:        req.Type,
+		Status:      req.Status,
+		StartTime:   *req.StartTime,
+		EndTime:     *req.EndTime,
+		FileID:      req.FileID,
+		FileType:    req.FileType,
+		IsPublic:    false, // 强制设置为 false
+	}
+
+	if err := c.service.Create(notice, email); err != nil {
+		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -113,10 +153,15 @@ func (c *BuildingAdminNoticeController) CreateNotice() {
 
 func (c *BuildingAdminNoticeController) UpdateNotice() {
 	email := c.ctx.GetString("email")
+	if email == "" {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	idStr := c.ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid notice ID"})
+		c.ctx.JSON(400, gin.H{"error": "invalid notice ID"})
 		return
 	}
 
@@ -126,14 +171,13 @@ func (c *BuildingAdminNoticeController) UpdateNotice() {
 		return
 	}
 
-	// 确保不能修改为公开通知
-	if isPublic, ok := updates["isPublic"].(bool); ok && isPublic {
-		c.ctx.JSON(403, gin.H{"error": "Building admin cannot create public notices"})
-		return
+	// 强制设置 isPublic 为 false
+	if _, ok := updates["is_public"]; ok {
+		updates["is_public"] = false
 	}
 
 	if err := c.service.Update(uint(id), email, updates); err != nil {
-		c.ctx.JSON(500, gin.H{"error": err.Error()})
+		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -142,15 +186,20 @@ func (c *BuildingAdminNoticeController) UpdateNotice() {
 
 func (c *BuildingAdminNoticeController) DeleteNotice() {
 	email := c.ctx.GetString("email")
+	if email == "" {
+		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	idStr := c.ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid notice ID"})
+		c.ctx.JSON(400, gin.H{"error": "invalid notice ID"})
 		return
 	}
 
 	if err := c.service.Delete(uint(id), email); err != nil {
-		c.ctx.JSON(500, gin.H{"error": err.Error()})
+		c.ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
