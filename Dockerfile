@@ -1,16 +1,21 @@
-FROM golang:1.23.0-alpine
-
-WORKDIR /app
+# Build code
+FROM golang:1.23.0-alpine AS build-stage
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://goproxy.cn,direct
-COPY go.mod go.sum ./
-RUN go mod download
 
-COPY . .
+WORKDIR /app
+COPY .  /app
 
 RUN go build -o main .
 
-EXPOSE 8080
+# Run release
+FROM alpine:3.14 AS release-stage
 
-CMD ["./main"] 
+WORKDIR /app
+COPY --from=build-stage /app/.env /app/.env
+COPY --from=build-stage /app/main /app
+
+EXPOSE 10032 
+
+ENTRYPOINT ["/app/main"]

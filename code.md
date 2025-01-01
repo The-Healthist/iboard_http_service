@@ -4,7 +4,6 @@
 系统采用经典的四层架构设计：
 - Controller 层：处理 HTTP 请求响应
 - Service 层：实现业务逻辑
-- Repository 层：数据访问层
 - Model 层：数据模型定义
 ### 每层职责
 #### Controller 层
@@ -19,12 +18,6 @@
 - 数据组装和转换
 - 事务管理
 - 业务规则验证
-#### Repository 层
-- 数据库操作接口
-- 实现数据的 CRUD 操作
-- 数据持久化
-- 查询优化
-- 数据缓存处理
 #### Model 层
 - 定义数据结构
 - 定义表关系
@@ -91,7 +84,25 @@
 
 ## BuildingAdmin 功能模块
 ## BuildingAdmin login 功能为下面的接口添加token
-
+### 1. Advertisement Management(广告管理)
+  - add(title,!description,type,status,duration,startTime,endTime,isPublic,path)
+  - update(id,!title,!description,!type,!status,!duration,!startTime,!endTime,!isPublic,!path)
+  - delete(ids[])
+  - get(pageSize,pageNum)
+  - getOne(id)
+### 2. Notice Management(通知管理)
+  - add(title,!description,type,status,startTime,endTime,isPublic,path,fileTy)
+  - addMany([{title,type,status,startTime,endTime,isPublic,path,duration}])
+  - update(id,!title,!type,!status,!startTime,!endTime,!isPublic,!path)
+  - delete(ids[])
+  - get(pageSize,pageNum)
+  - getOne(id)
+### 3. File Management(文件管理)
+  - getUploadParams(fileName)
+  - uploadCallback(fileName,size)
+  - delete(ids[])
+  - get(pageSize,pageNum)
+  - getOne(id)
 
 ## building 功能模块
   - login(ismartId,password)
