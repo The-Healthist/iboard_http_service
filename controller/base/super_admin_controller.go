@@ -7,6 +7,7 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/gin-gonic/gin"
 	jwt "github.com/golang-jwt/jwt/v4"
@@ -24,35 +25,70 @@ type InterfaceSuperAdminController interface {
 }
 
 type SuperAdminController struct {
-	ctx          *gin.Context
-	service      base_services.InterfaceSuperAdminService
-	jwtService   *base_services.IJWTService
-	emailService *base_services.IEmailService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewSuperAdminController(
-	ctx *gin.Context,
-	service base_services.InterfaceSuperAdminService,
-	jwtService *base_services.IJWTService,
-	emailService *base_services.IEmailService,
-) InterfaceSuperAdminController {
+func NewSuperAdminController(ctx *gin.Context, container *container.ServiceContainer) *SuperAdminController {
 	return &SuperAdminController{
-		ctx:          ctx,
-		service:      service,
-		jwtService:   jwtService,
-		emailService: emailService,
+		Ctx:       ctx,
+		Container: container,
 	}
 }
 
-// 1.login
+// HandleFuncSuperAdmin returns a gin.HandlerFunc for the specified method
+func HandleFuncSuperAdmin(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "login":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.Login()
+		}
+	case "getSuperAdmins":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.GetSuperAdmins()
+		}
+	case "createSuperAdmin":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.CreateSuperAdmin()
+		}
+	case "deleteSuperAdmin":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.DeleteSuperAdmin()
+		}
+	case "resetPassword":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.ResetPassword()
+		}
+	case "changePassword":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.ChangePassword()
+		}
+	case "getOne":
+		return func(ctx *gin.Context) {
+			controller := NewSuperAdminController(ctx, container)
+			controller.GetOne()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
 func (c *SuperAdminController) Login() {
 	var form struct {
 		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -62,55 +98,46 @@ func (c *SuperAdminController) Login() {
 	form.Email = strings.TrimSpace(form.Email)
 	form.Password = strings.TrimSpace(form.Password)
 
-	if err := c.service.CheckPassword(form.Email, form.Password); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).CheckPassword(form.Email, form.Password); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "login failed",
 		})
 		return
 	}
 
-	if c.jwtService == nil {
-		c.ctx.JSON(500, gin.H{
-			"error":   "jwt service is nil",
-			"message": "internal server error",
-		})
-		return
-	}
-
-	// 获取管理员信息
-	admin, err := c.service.GetSuperAdminByEmail(form.Email)
+	// Get admin info
+	admin, err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).GetSuperAdminByEmail(form.Email)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{
+		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "failed to get admin info",
 		})
 		return
 	}
 
-	// 使用新的方法生成包含 id 和 email 的 token
-	token, err := (*c.jwtService).GenerateSuperAdminToken(admin)
+	// Generate token
+	token, err := c.Container.GetService("jwt").(base_services.IJWTService).GenerateSuperAdminToken(admin)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{
+		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "failed to generate token",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "login success",
 		"token":   token,
 	})
 }
 
-// 2.get super admins
 func (c *SuperAdminController) GetSuperAdmins() {
 	var searchQuery struct {
 		Search string `form:"search"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -124,8 +151,8 @@ func (c *SuperAdminController) GetSuperAdmins() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -136,27 +163,26 @@ func (c *SuperAdminController) GetSuperAdmins() {
 		"desc":     pagination.Desc,
 	}
 
-	admins, paginationResult, err := c.service.GetSuperAdmins(queryMap, paginationMap)
+	admins, paginationResult, err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).GetSuperAdmins(queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       admins,
 		"pagination": paginationResult,
 	})
 }
 
-// 3.create super admin
 func (c *SuperAdminController) CreateSuperAdmin() {
 	var form struct {
 		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -168,8 +194,8 @@ func (c *SuperAdminController) CreateSuperAdmin() {
 		Password: strings.TrimSpace(form.Password),
 	}
 
-	if err := c.service.CreateSuperAdmin(superAdmin); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).CreateSuperAdmin(superAdmin); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create super admin failed",
 		})
@@ -177,47 +203,43 @@ func (c *SuperAdminController) CreateSuperAdmin() {
 	}
 
 	superAdmin.Password = ""
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create super admin success",
 		"data":    superAdmin,
 	})
 }
 
-// 4.delete super admin
 func (c *SuperAdminController) DeleteSuperAdmin() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 获取当前登录的管理员信息
-	claims, exists := c.ctx.Get("claims")
+	claims, exists := c.Ctx.Get("claims")
 	if !exists {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	mapClaims, ok := claims.(jwt.MapClaims)
 	if !ok {
-		c.ctx.JSON(500, gin.H{"error": "invalid token claims format"})
+		c.Ctx.JSON(500, gin.H{"error": "invalid token claims format"})
 		return
 	}
 
-	// 从 claims 中获取当前管理员 ID
-	currentIDFloat, ok := mapClaims["id"].(float64) // JWT 中的数字会被解析为 float64
+	currentIDFloat, ok := mapClaims["id"].(float64)
 	if !ok {
-		c.ctx.JSON(500, gin.H{"error": "invalid id in token"})
+		c.Ctx.JSON(500, gin.H{"error": "invalid id in token"})
 		return
 	}
 	currentID := uint(currentIDFloat)
 
-	// 检查是否试图删除自己
 	for _, id := range form.IDs {
 		if id == currentID {
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error": "cannot delete yourself",
 				"id":    id,
 			})
@@ -225,71 +247,69 @@ func (c *SuperAdminController) DeleteSuperAdmin() {
 		}
 	}
 
-	if err := c.service.DeleteSuperAdmins(form.IDs); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).DeleteSuperAdmins(form.IDs); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete super admin success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete super admin success"})
 }
 
 func (c *SuperAdminController) ResetPassword() {
 	var form struct {
 		ID uint `json:"id" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	admin, err := c.service.GetSuperAdminById(form.ID)
+	admin, err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).GetSuperAdminById(form.ID)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	randPassword := utils.RandStr(8, "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	hashPassword, err := bcrypt.GenerateFromPassword([]byte(randPassword), bcrypt.DefaultCost)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": err.Error()})
+		c.Ctx.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := c.service.UpdateSuperAdmin(admin, map[string]interface{}{
+	if err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).UpdateSuperAdmin(admin, map[string]interface{}{
 		"password": string(hashPassword),
 	}); err != nil {
-		c.ctx.JSON(500, gin.H{"error": err.Error()})
+		c.Ctx.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	if c.emailService != nil {
-		emailContent := fmt.Sprintf("Your password has been reset to: %s", randPassword)
-		if err := (*c.emailService).SendEmail(
-			[]string{admin.Email},
-			"Password Reset Notification",
-			emailContent,
-		); err != nil {
-			c.ctx.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
+	emailContent := fmt.Sprintf("Your password has been reset to: %s", randPassword)
+	if err := c.Container.GetService("email").(base_services.IEmailService).SendEmail(
+		[]string{admin.Email},
+		"Password Reset Notification",
+		emailContent,
+	); err != nil {
+		c.Ctx.JSON(500, gin.H{"error": err.Error()})
+		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "reset password success"})
+	c.Ctx.JSON(200, gin.H{"message": "reset password success"})
 }
 
-// 5.change password
 func (c *SuperAdminController) ChangePassword() {
 	var form struct {
 		ID          uint   `json:"id" binding:"required"`
 		NewPassword string `json:"newPassword" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	admin, err := c.service.GetSuperAdminById(form.ID)
+
+	admin, err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).GetSuperAdminById(form.ID)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "admin not found",
 			"message": err.Error(),
 		})
@@ -298,40 +318,40 @@ func (c *SuperAdminController) ChangePassword() {
 
 	hashPassword, err := bcrypt.GenerateFromPassword([]byte(form.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{
+		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "password encryption failed",
 		})
 		return
 	}
 
-	if err := c.service.UpdateSuperAdmin(admin, map[string]interface{}{
+	if err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).UpdateSuperAdmin(admin, map[string]interface{}{
 		"password": string(hashPassword),
 	}); err != nil {
-		c.ctx.JSON(500, gin.H{
+		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "update password failed",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "change password success"})
+	c.Ctx.JSON(200, gin.H{"message": "change password success"})
 }
 
 func (c *SuperAdminController) GetOne() {
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid super admin ID"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid super admin ID"})
 		return
 	}
 
-	superAdmin, err := c.service.GetSuperAdminById(uint(id))
+	superAdmin, err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).GetSuperAdminById(uint(id))
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	superAdmin.Password = "" // Don't return password
-	c.ctx.JSON(200, gin.H{"data": superAdmin})
+	c.Ctx.JSON(200, gin.H{"data": superAdmin})
 }

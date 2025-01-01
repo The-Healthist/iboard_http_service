@@ -7,6 +7,7 @@ import (
 	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
@@ -22,17 +23,54 @@ type InterfaceNoticeController interface {
 }
 
 type NoticeController struct {
-	ctx     *gin.Context
-	service base_services.InterfaceNoticeService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewNoticeController(
-	ctx *gin.Context,
-	service base_services.InterfaceNoticeService,
-) InterfaceNoticeController {
+func NewNoticeController(ctx *gin.Context, container *container.ServiceContainer) *NoticeController {
 	return &NoticeController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
+	}
+}
+
+// HandleFuncNotice returns a gin.HandlerFunc for the specified method
+func HandleFuncNotice(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "create":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.Create()
+		}
+	case "createMany":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.CreateMany()
+		}
+	case "get":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.Get()
+		}
+	case "update":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.Update()
+		}
+	case "delete":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.Delete()
+		}
+	case "getOne":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.GetOne()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
 	}
 }
 
@@ -49,8 +87,8 @@ func (c *NoticeController) Create() {
 		FileType    field.FileType   `json:"fileType"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -78,7 +116,7 @@ func (c *NoticeController) Create() {
 	if form.Path != "" {
 		var file base_models.File
 		if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "file not found",
 			})
@@ -99,8 +137,8 @@ func (c *NoticeController) Create() {
 		FileType:    form.FileType,
 	}
 
-	if err := c.service.Create(notice); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).Create(notice); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create notice failed",
 		})
@@ -109,14 +147,14 @@ func (c *NoticeController) Create() {
 
 	// 重新加载 notice 以获取关联的文件信息
 	if err := databases.DB_CONN.Preload("File").First(notice, notice.ID).Error; err != nil {
-		c.ctx.JSON(200, gin.H{
+		c.Ctx.JSON(200, gin.H{
 			"message": "create notice success, but failed to load file info",
 			"data":    notice,
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create notice success",
 		"data":    notice,
 	})
@@ -136,8 +174,8 @@ func (c *NoticeController) CreateMany() {
 		Duration    int              `json:"duration" binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&forms); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&forms); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -159,8 +197,8 @@ func (c *NoticeController) CreateMany() {
 	}
 
 	for _, notice := range notices {
-		if err := c.service.Create(notice); err != nil {
-			c.ctx.JSON(400, gin.H{
+		if err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).Create(notice); err != nil {
+			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "create notice failed",
 				"notice":  notice,
@@ -169,7 +207,7 @@ func (c *NoticeController) CreateMany() {
 		}
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create notices success",
 		"data":    notices,
 	})
@@ -180,8 +218,8 @@ func (c *NoticeController) Get() {
 		Search string `form:"search"`
 		Type   string `form:"type"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -195,8 +233,8 @@ func (c *NoticeController) Get() {
 		Desc:     true,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -207,13 +245,13 @@ func (c *NoticeController) Get() {
 		"desc":     pagination.Desc,
 	}
 
-	notices, paginationResult, err := c.service.Get(queryMap, paginationMap)
+	notices, paginationResult, err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).Get(queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       notices,
 		"pagination": paginationResult,
 	})
@@ -233,15 +271,15 @@ func (c *NoticeController) Update() {
 		FileType    field.FileType   `json:"fileType"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	// 获取原有的通知信息
-	notice, err := c.service.GetByID(form.ID)
+	notice, err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).GetByID(form.ID)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to get notice",
 			"message": err.Error(),
 		})
@@ -288,7 +326,7 @@ func (c *NoticeController) Update() {
 		var newFile base_models.File
 		if err := tx.Where("path = ?", form.Path).First(&newFile).Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "File not found",
 				"message": err.Error(),
 			})
@@ -305,7 +343,7 @@ func (c *NoticeController) Update() {
 		updates["file_id"] = newFile.ID
 		if err := tx.Model(&base_models.Notice{}).Where("id = ?", form.ID).Updates(updates).Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "Failed to update notice",
 				"message": err.Error(),
 			})
@@ -319,7 +357,7 @@ func (c *NoticeController) Update() {
 			var noticeCount int64
 			if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", oldFileID).Count(&adCount).Error; err != nil {
 				tx.Rollback()
-				c.ctx.JSON(400, gin.H{
+				c.Ctx.JSON(400, gin.H{
 					"error":   "Failed to check advertisement references",
 					"message": err.Error(),
 				})
@@ -327,7 +365,7 @@ func (c *NoticeController) Update() {
 			}
 			if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", oldFileID).Count(&noticeCount).Error; err != nil {
 				tx.Rollback()
-				c.ctx.JSON(400, gin.H{
+				c.Ctx.JSON(400, gin.H{
 					"error":   "Failed to check notice references",
 					"message": err.Error(),
 				})
@@ -338,7 +376,7 @@ func (c *NoticeController) Update() {
 			if adCount == 0 && noticeCount == 0 {
 				if err := tx.Delete(&base_models.File{}, "id = ?", oldFileID).Error; err != nil {
 					tx.Rollback()
-					c.ctx.JSON(400, gin.H{
+					c.Ctx.JSON(400, gin.H{
 						"error":   "Failed to delete old file",
 						"message": err.Error(),
 					})
@@ -351,7 +389,7 @@ func (c *NoticeController) Update() {
 		var updatedNotice base_models.Notice
 		if err := tx.Preload("File").First(&updatedNotice, form.ID).Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "Failed to get updated notice",
 				"message": err.Error(),
 			})
@@ -361,14 +399,14 @@ func (c *NoticeController) Update() {
 		// 提交事务
 		if err := tx.Commit().Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "Failed to commit transaction",
 				"message": err.Error(),
 			})
 			return
 		}
 
-		c.ctx.JSON(200, gin.H{
+		c.Ctx.JSON(200, gin.H{
 			"message": "update notice success",
 			"data":    updatedNotice,
 		})
@@ -376,13 +414,13 @@ func (c *NoticeController) Update() {
 	}
 
 	// 如果没有更新文件，则直接更新其他字段
-	updatedNotice, err := c.service.Update(form.ID, updates)
+	updatedNotice, err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).Update(form.ID, updates)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "update notice success",
 		"data":    updatedNotice,
 	})
@@ -392,8 +430,8 @@ func (c *NoticeController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -409,7 +447,7 @@ func (c *NoticeController) Delete() {
 	var notices []base_models.Notice
 	if err := tx.Where("id IN ?", form.IDs).Find(&notices).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to get notices",
 			"message": err.Error(),
 		})
@@ -419,7 +457,7 @@ func (c *NoticeController) Delete() {
 	// 2. 解除与建筑物的关联
 	if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to unbind buildings",
 			"message": err.Error(),
 		})
@@ -437,7 +475,7 @@ func (c *NoticeController) Delete() {
 	// 4. 解除文件绑定
 	if err := tx.Model(&base_models.Notice{}).Where("id IN ?", form.IDs).Update("file_id", nil).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to unbind files",
 			"message": err.Error(),
 		})
@@ -451,7 +489,7 @@ func (c *NoticeController) Delete() {
 
 		if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", fileID).Count(&adCount).Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "Failed to check advertisement references",
 				"message": err.Error(),
 			})
@@ -460,7 +498,7 @@ func (c *NoticeController) Delete() {
 
 		if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", fileID).Count(&noticeCount).Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "Failed to check notice references",
 				"message": err.Error(),
 			})
@@ -470,7 +508,7 @@ func (c *NoticeController) Delete() {
 		if adCount == 0 && noticeCount == 0 {
 			if err := tx.Delete(&base_models.File{}, "id = ?", fileID).Error; err != nil {
 				tx.Rollback()
-				c.ctx.JSON(400, gin.H{
+				c.Ctx.JSON(400, gin.H{
 					"error":   "Failed to delete file",
 					"message": err.Error(),
 				})
@@ -482,7 +520,7 @@ func (c *NoticeController) Delete() {
 	// 6. 删除通知
 	if err := tx.Delete(&base_models.Notice{}, form.IDs).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to delete notices",
 			"message": err.Error(),
 		})
@@ -492,29 +530,29 @@ func (c *NoticeController) Delete() {
 	// 提交事务
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to commit transaction",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete notice success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete notice success"})
 }
 
 func (c *NoticeController) GetOne() {
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid notice ID"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid notice ID"})
 		return
 	}
 
-	notice, err := c.service.GetByID(uint(id))
+	notice, err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).GetByID(uint(id))
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": notice})
+	c.Ctx.JSON(200, gin.H{"data": notice})
 }

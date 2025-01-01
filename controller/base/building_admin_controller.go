@@ -5,6 +5,7 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
@@ -20,20 +21,49 @@ type InterfaceBuildingAdminController interface {
 }
 
 type BuildingAdminController struct {
-	ctx        *gin.Context
-	service    base_services.InterfaceBuildingAdminService
-	jwtService *base_services.IJWTService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewBuildingAdminController(
-	ctx *gin.Context,
-	service base_services.InterfaceBuildingAdminService,
-	jwtService *base_services.IJWTService,
-) InterfaceBuildingAdminController {
+func NewBuildingAdminController(ctx *gin.Context, container *container.ServiceContainer) *BuildingAdminController {
 	return &BuildingAdminController{
-		ctx:        ctx,
-		service:    service,
-		jwtService: jwtService,
+		Ctx:       ctx,
+		Container: container,
+	}
+}
+
+// HandleFuncBuildingAdmin returns a gin.HandlerFunc for the specified method
+func HandleFuncBuildingAdmin(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "create":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminController(ctx, container)
+			controller.Create()
+		}
+	case "get":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminController(ctx, container)
+			controller.Get()
+		}
+	case "update":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminController(ctx, container)
+			controller.Update()
+		}
+	case "delete":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminController(ctx, container)
+			controller.Delete()
+		}
+	case "getOne":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminController(ctx, container)
+			controller.GetOne()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
 	}
 }
 
@@ -44,8 +74,8 @@ func (c *BuildingAdminController) Create() {
 		Status   field.Status `json:"status"   binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -54,7 +84,7 @@ func (c *BuildingAdminController) Create() {
 
 	// Validate status
 	if !field.IsValidStatus(string(form.Status)) {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "invalid status",
 			"message": "status must be one of: active, inactive, pending",
 		})
@@ -64,7 +94,7 @@ func (c *BuildingAdminController) Create() {
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(form.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{
+		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "password encryption failed",
 		})
@@ -77,8 +107,8 @@ func (c *BuildingAdminController) Create() {
 		Status:   form.Status,
 	}
 
-	if err := c.service.Create(buildingAdmin); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).Create(buildingAdmin); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create building admin failed",
 		})
@@ -86,7 +116,7 @@ func (c *BuildingAdminController) Create() {
 	}
 
 	buildingAdmin.Password = "" // Don't return password
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create building admin success",
 		"data":    buildingAdmin,
 	})
@@ -97,8 +127,8 @@ func (c *BuildingAdminController) Get() {
 		BuildingID string        `form:"buildingId"`
 		Status     *field.Status `form:"status"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -112,8 +142,8 @@ func (c *BuildingAdminController) Get() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -124,13 +154,13 @@ func (c *BuildingAdminController) Get() {
 		"desc":     pagination.Desc,
 	}
 
-	buildingAdmins, paginationResult, err := c.service.Get(queryMap, paginationMap)
+	buildingAdmins, paginationResult, err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).Get(queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       buildingAdmins,
 		"pagination": paginationResult,
 	})
@@ -143,8 +173,8 @@ func (c *BuildingAdminController) Update() {
 		Status   *field.Status `json:"status"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -153,7 +183,7 @@ func (c *BuildingAdminController) Update() {
 	if form.Password != "" {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(form.Password), bcrypt.DefaultCost)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "password encryption failed"})
+			c.Ctx.JSON(500, gin.H{"error": "password encryption failed"})
 			return
 		}
 		updates["password"] = string(hashedPassword)
@@ -163,54 +193,53 @@ func (c *BuildingAdminController) Update() {
 		updates["status"] = *form.Status
 	}
 
-	if err := c.service.Update(form.ID, updates); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).Update(form.ID, updates); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "update building admin success"})
+	c.Ctx.JSON(200, gin.H{"message": "update building admin success"})
 }
 
 func (c *BuildingAdminController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := c.service.Delete(form.IDs); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).Delete(form.IDs); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete building admin success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete building admin success"})
 }
 
 func (c *BuildingAdminController) GetOne() {
-	// First verify JWT token
-	if c.jwtService == nil {
-		c.ctx.JSON(500, gin.H{
+	if c.Container.GetService("jwt") == nil {
+		c.Ctx.JSON(500, gin.H{
 			"error":   "jwt service is nil",
 			"message": "internal server error",
 		})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Invalid building admin ID",
 			"message": "Please check the ID format",
 		})
 		return
 	}
 
-	buildingAdmin, err := c.service.GetByID(uint(id))
+	buildingAdmin, err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).GetByID(uint(id))
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "Failed to get building admin",
 		})
@@ -218,7 +247,7 @@ func (c *BuildingAdminController) GetOne() {
 	}
 
 	buildingAdmin.Password = "" // Don't return password
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get building admin success",
 		"data":    buildingAdmin,
 	})

@@ -3,6 +3,7 @@ package http_relationship_controller
 import (
 	"strconv"
 
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/gin-gonic/gin"
 )
@@ -15,18 +16,38 @@ type InterfaceNoticeBuildingController interface {
 }
 
 type NoticeBuildingController struct {
-	ctx     *gin.Context
-	service relationship_service.InterfaceNoticeBuildingService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewNoticeBuildingController(
-	ctx *gin.Context,
-	service relationship_service.InterfaceNoticeBuildingService,
-) InterfaceNoticeBuildingController {
+func NewNoticeBuildingController(ctx *gin.Context, container *container.ServiceContainer) *NoticeBuildingController {
 	return &NoticeBuildingController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
 	}
+}
+
+// HandleFuncNoticeBuilding returns a gin.HandlerFunc for the specified method
+func HandleFuncNoticeBuilding(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		controller := NewNoticeBuildingController(ctx, container)
+		switch method {
+		case "bindBuildings":
+			controller.BindBuildings()
+		case "unbindBuildings":
+			controller.UnbindBuildings()
+		case "getBuildingsByNotice":
+			controller.GetBuildingsByNotice()
+		case "getNoticesByBuilding":
+			controller.GetNoticesByBuilding()
+		default:
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
+func (c *NoticeBuildingController) getService() relationship_service.InterfaceNoticeBuildingService {
+	return c.Container.GetService("noticeBuilding").(relationship_service.InterfaceNoticeBuildingService)
 }
 
 func (c *NoticeBuildingController) BindBuildings() {
@@ -35,8 +56,8 @@ func (c *NoticeBuildingController) BindBuildings() {
 		BuildingIDs []uint `json:"buildingIds" binding:"required,min=1"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
 		return
 	}
 
@@ -49,9 +70,9 @@ func (c *NoticeBuildingController) BindBuildings() {
 
 	// 检查所有通知是否存在
 	for _, noticeID := range form.NoticeIDs {
-		exists, err := c.service.NoticeExists(noticeID)
+		exists, err := c.getService().NoticeExists(noticeID)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+			c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 			return
 		}
 		if !exists {
@@ -60,9 +81,9 @@ func (c *NoticeBuildingController) BindBuildings() {
 	}
 
 	// 检查所有建筑物是否存在
-	missingBuildings, err := c.service.BulkCheckBuildingsExistence(form.BuildingIDs)
+	missingBuildings, err := c.getService().BulkCheckBuildingsExistence(form.BuildingIDs)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if len(missingBuildings) > 0 {
@@ -71,16 +92,16 @@ func (c *NoticeBuildingController) BindBuildings() {
 
 	// 如果有不存在的记录，直接返回错误
 	if len(response.NotFoundNotices) > 0 || len(response.NotFoundBuildings) > 0 {
-		c.ctx.JSON(404, response)
+		c.Ctx.JSON(404, response)
 		return
 	}
 
 	// 处理每个通知的绑定
 	for _, noticeID := range form.NoticeIDs {
 		// 获取当前绑定的建筑物列表
-		currentBuildings, err := c.service.GetBuildingsByNoticeID(noticeID)
+		currentBuildings, err := c.getService().GetBuildingsByNoticeID(noticeID)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+			c.Ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
 			return
 		}
 
@@ -110,8 +131,8 @@ func (c *NoticeBuildingController) BindBuildings() {
 
 		// 执行有效的绑定
 		if len(validBindings) > 0 {
-			if err := c.service.BindBuildings(noticeID, validBindings); err != nil {
-				c.ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
+			if err := c.getService().BindBuildings(noticeID, validBindings); err != nil {
+				c.Ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
 				return
 			}
 			response.Success = append(response.Success, map[string]interface{}{
@@ -121,7 +142,7 @@ func (c *NoticeBuildingController) BindBuildings() {
 		}
 	}
 
-	c.ctx.JSON(200, response)
+	c.Ctx.JSON(200, response)
 }
 
 func (c *NoticeBuildingController) UnbindBuildings() {
@@ -130,30 +151,30 @@ func (c *NoticeBuildingController) UnbindBuildings() {
 		BuildingIDs []uint `json:"buildingIds" binding:"required,min=1"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
 		return
 	}
 
 	// 检查通知是否存在
-	exists, err := c.service.NoticeExists(form.NoticeID)
+	exists, err := c.getService().NoticeExists(form.NoticeID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Notice not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Notice not found"})
 		return
 	}
 
 	// 检查所有建筑物是否存在
-	missingBuildings, err := c.service.BulkCheckBuildingsExistence(form.BuildingIDs)
+	missingBuildings, err := c.getService().BulkCheckBuildingsExistence(form.BuildingIDs)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if len(missingBuildings) > 0 {
-		c.ctx.JSON(404, map[string]interface{}{
+		c.Ctx.JSON(404, map[string]interface{}{
 			"error":              "Some Buildings not found",
 			"missingBuildingIds": missingBuildings,
 		})
@@ -161,9 +182,9 @@ func (c *NoticeBuildingController) UnbindBuildings() {
 	}
 
 	// 获取当前绑定的建筑物列表
-	currentBuildings, err := c.service.GetBuildingsByNoticeID(form.NoticeID)
+	currentBuildings, err := c.getService().GetBuildingsByNoticeID(form.NoticeID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
 		return
 	}
 
@@ -184,83 +205,83 @@ func (c *NoticeBuildingController) UnbindBuildings() {
 	}
 
 	if len(notBoundIDs) > 0 {
-		c.ctx.JSON(400, map[string]interface{}{
+		c.Ctx.JSON(400, map[string]interface{}{
 			"error":               "Some Buildings are not bound to the Notice",
 			"notBoundBuildingIds": notBoundIDs,
 		})
 		return
 	}
 
-	if err := c.service.UnbindBuildings(form.NoticeID, validUnbind); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Failed to unbind buildings: " + err.Error()})
+	if err := c.getService().UnbindBuildings(form.NoticeID, validUnbind); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Failed to unbind buildings: " + err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, map[string]interface{}{"message": "Buildings unbound successfully"})
+	c.Ctx.JSON(200, map[string]interface{}{"message": "Buildings unbound successfully"})
 }
 
 func (c *NoticeBuildingController) GetBuildingsByNotice() {
-	noticeIDStr := c.ctx.Query("noticeId")
+	noticeIDStr := c.Ctx.Query("noticeId")
 	if noticeIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "noticeId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "noticeId is required"})
 		return
 	}
 
 	noticeID, err := strconv.ParseUint(noticeIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid noticeId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid noticeId"})
 		return
 	}
 
 	// 检查通知是否存在
-	exists, err := c.service.NoticeExists(uint(noticeID))
+	exists, err := c.getService().NoticeExists(uint(noticeID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Notice not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Notice not found"})
 		return
 	}
 
-	buildings, err := c.service.GetBuildingsByNoticeID(uint(noticeID))
+	buildings, err := c.getService().GetBuildingsByNoticeID(uint(noticeID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch buildings"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch buildings"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": buildings})
+	c.Ctx.JSON(200, gin.H{"data": buildings})
 }
 
 func (c *NoticeBuildingController) GetNoticesByBuilding() {
-	buildingIDStr := c.ctx.Query("buildingId")
+	buildingIDStr := c.Ctx.Query("buildingId")
 	if buildingIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "buildingId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "buildingId is required"})
 		return
 	}
 
 	buildingID, err := strconv.ParseUint(buildingIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid buildingId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid buildingId"})
 		return
 	}
 
 	// 检查建筑物是否存在
-	exists, err := c.service.BuildingExists(uint(buildingID))
+	exists, err := c.getService().BuildingExists(uint(buildingID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Building not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Building not found"})
 		return
 	}
 
-	notices, err := c.service.GetNoticesByBuildingID(uint(buildingID))
+	notices, err := c.getService().GetNoticesByBuildingID(uint(buildingID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch notices"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch notices"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": notices})
+	c.Ctx.JSON(200, gin.H{"data": notices})
 }

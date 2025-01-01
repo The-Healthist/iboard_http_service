@@ -3,6 +3,7 @@ package http_relationship_controller
 import (
 	"strconv"
 
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/gin-gonic/gin"
 )
@@ -15,18 +16,38 @@ type InterfaceFileNoticeController interface {
 }
 
 type FileNoticeController struct {
-	ctx     *gin.Context
-	service relationship_service.InterfaceFileNoticeService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewFileNoticeController(
-	ctx *gin.Context,
-	service relationship_service.InterfaceFileNoticeService,
-) InterfaceFileNoticeController {
+func NewFileNoticeController(ctx *gin.Context, container *container.ServiceContainer) *FileNoticeController {
 	return &FileNoticeController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
 	}
+}
+
+// HandleFuncFileNotice returns a gin.HandlerFunc for the specified method
+func HandleFuncFileNotice(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		controller := NewFileNoticeController(ctx, container)
+		switch method {
+		case "bindFile":
+			controller.BindFile()
+		case "unbindFile":
+			controller.UnbindFile()
+		case "getNoticeByFile":
+			controller.GetNoticeByFile()
+		case "getFileByNotice":
+			controller.GetFileByNotice()
+		default:
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
+func (c *FileNoticeController) getService() relationship_service.InterfaceFileNoticeService {
+	return c.Container.GetService("fileNotice").(relationship_service.InterfaceFileNoticeService)
 }
 
 func (c *FileNoticeController) BindFile() {
@@ -35,102 +56,102 @@ func (c *FileNoticeController) BindFile() {
 		FileID   uint `json:"fileId" binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters"})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters"})
 		return
 	}
 
 	// 检查通知是否存在
-	exists, err := c.service.NoticeExists(form.NoticeID)
+	exists, err := c.getService().NoticeExists(form.NoticeID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Notice not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Notice not found"})
 		return
 	}
 
 	// 检查文件是否存在
-	exists, err = c.service.FileExists(form.FileID)
+	exists, err = c.getService().FileExists(form.FileID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "File not found"})
+		c.Ctx.JSON(404, gin.H{"error": "File not found"})
 		return
 	}
 
-	if err := c.service.BindFile(form.NoticeID, form.FileID); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.getService().BindFile(form.NoticeID, form.FileID); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "File bound successfully"})
+	c.Ctx.JSON(200, gin.H{"message": "File bound successfully"})
 }
 
 func (c *FileNoticeController) UnbindFile() {
-	noticeIDStr := c.ctx.Query("noticeId")
+	noticeIDStr := c.Ctx.Query("noticeId")
 	if noticeIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "noticeId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "noticeId is required"})
 		return
 	}
 
 	noticeID, err := strconv.ParseUint(noticeIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid noticeId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid noticeId"})
 		return
 	}
 
-	if err := c.service.UnbindFile(uint(noticeID)); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.getService().UnbindFile(uint(noticeID)); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "File unbound successfully"})
+	c.Ctx.JSON(200, gin.H{"message": "File unbound successfully"})
 }
 
 func (c *FileNoticeController) GetNoticeByFile() {
-	fileIDStr := c.ctx.Query("fileId")
+	fileIDStr := c.Ctx.Query("fileId")
 	if fileIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "fileId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "fileId is required"})
 		return
 	}
 
 	fileID, err := strconv.ParseUint(fileIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid fileId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid fileId"})
 		return
 	}
 
-	notice, err := c.service.GetNoticeByFileID(uint(fileID))
+	notice, err := c.getService().GetNoticeByFileID(uint(fileID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch notice"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch notice"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": notice})
+	c.Ctx.JSON(200, gin.H{"data": notice})
 }
 
 func (c *FileNoticeController) GetFileByNotice() {
-	noticeIDStr := c.ctx.Query("noticeId")
+	noticeIDStr := c.Ctx.Query("noticeId")
 	if noticeIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "noticeId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "noticeId is required"})
 		return
 	}
 
 	noticeID, err := strconv.ParseUint(noticeIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid noticeId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid noticeId"})
 		return
 	}
 
-	file, err := c.service.GetFileByNoticeID(uint(noticeID))
+	file, err := c.getService().GetFileByNoticeID(uint(noticeID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch file"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch file"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": file})
+	c.Ctx.JSON(200, gin.H{"data": file})
 }

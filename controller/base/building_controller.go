@@ -6,6 +6,7 @@ import (
 	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/gin-gonic/gin"
 )
@@ -22,24 +23,68 @@ type InterfaceBuildingController interface {
 }
 
 type BuildingController struct {
-	ctx        *gin.Context
-	service    base_services.InterfaceBuildingService
-	jwtService *base_services.IJWTService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewBuildingController(
-	ctx *gin.Context,
-	service base_services.InterfaceBuildingService,
-	jwtService *base_services.IJWTService,
-) InterfaceBuildingController {
+func NewBuildingController(ctx *gin.Context, container *container.ServiceContainer) *BuildingController {
 	return &BuildingController{
-		ctx:        ctx,
-		service:    service,
-		jwtService: jwtService,
+		Ctx:       ctx,
+		Container: container,
 	}
 }
 
-// 1,create
+// HandleFuncBuilding returns a gin.HandlerFunc for the specified method
+func HandleFuncBuilding(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "create":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.Create()
+		}
+	case "get":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.Get()
+		}
+	case "update":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.Update()
+		}
+	case "delete":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.Delete()
+		}
+	case "getOne":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.GetOne()
+		}
+	case "login":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.Login()
+		}
+	case "getBuildingAdvertisements":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.GetBuildingAdvertisements()
+		}
+	case "getBuildingNotices":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.GetBuildingNotices()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
+// Create creates a new building
 func (c *BuildingController) Create() {
 	var form struct {
 		Name     string `json:"name" binding:"required"`
@@ -48,8 +93,8 @@ func (c *BuildingController) Create() {
 		Remark   string `json:"remark"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -63,27 +108,26 @@ func (c *BuildingController) Create() {
 		Remark:   form.Remark,
 	}
 
-	if err := c.service.Create(building); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Create(building); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create building failed",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create building success",
 		"data":    building,
 	})
 }
 
-// 2,get
 func (c *BuildingController) Get() {
 	var searchQuery struct {
 		Search string `form:"search"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -97,8 +141,8 @@ func (c *BuildingController) Get() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -109,19 +153,18 @@ func (c *BuildingController) Get() {
 		"desc":     pagination.Desc,
 	}
 
-	buildings, paginationResult, err := c.service.Get(queryMap, paginationMap)
+	buildings, paginationResult, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Get(queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       buildings,
 		"pagination": paginationResult,
 	})
 }
 
-// 3,update
 func (c *BuildingController) Update() {
 	var form struct {
 		ID       uint   `json:"id" binding:"required"`
@@ -131,8 +174,8 @@ func (c *BuildingController) Update() {
 		Remark   string `json:"remark"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -150,25 +193,24 @@ func (c *BuildingController) Update() {
 		updates["remark"] = form.Remark
 	}
 
-	if err := c.service.Update(form.ID, updates); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Update(form.ID, updates); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "update building success"})
+	c.Ctx.JSON(200, gin.H{"message": "update building success"})
 }
 
-// 4,delete
 func (c *BuildingController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 开启事务
+	// Start transaction
 	tx := databases.DB_CONN.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -176,123 +218,112 @@ func (c *BuildingController) Delete() {
 		}
 	}()
 
-	// 1. 获取要删除的建筑物信息
+	// 1. Get buildings to delete
 	var buildings []base_models.Building
 	if err := tx.Where("id IN ?", form.IDs).Find(&buildings).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to get buildings",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 2. 解除与广告的关联
+	// 2. Remove advertisement associations
 	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to unbind advertisements",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 3. 解除与通知的关联
+	// 3. Remove notice associations
 	if err := tx.Exec("DELETE FROM notice_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to unbind notices",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 4. 解除与管理员的关联
+	// 4. Remove admin associations
 	if err := tx.Exec("DELETE FROM building_admins_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to unbind admins",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 5. 删除建筑物
-	if err := tx.Delete(&base_models.Building{}, form.IDs).Error; err != nil {
+	// 5. Delete buildings
+	if err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Delete(form.IDs); err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to delete buildings",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 提交事务
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to commit transaction",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete building success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete building success"})
 }
 
-// 5,get one
 func (c *BuildingController) GetOne() {
-	if c.jwtService == nil {
-		c.ctx.JSON(500, gin.H{
-			"error":   "jwt service is nil",
-			"message": "internal server error",
-		})
-		return
-	}
-
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Invalid building ID",
 			"message": "Please check the ID format",
 		})
 		return
 	}
 
-	building, err := c.service.GetByID(uint(id))
+	building, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetByID(uint(id))
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "Failed to get building",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get building success",
 		"data":    building,
 	})
 }
 
-// 6,login
 func (c *BuildingController) Login() {
 	var form struct {
 		IsmartID string `json:"ismartId" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
 		return
 	}
 
-	building, err := c.service.GetByCredentials(form.IsmartID, form.Password)
+	building, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetByCredentials(form.IsmartID, form.Password)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "Invalid credentials",
 		})
@@ -300,24 +331,16 @@ func (c *BuildingController) Login() {
 	}
 
 	// Generate JWT token
-	if c.jwtService == nil {
-		c.ctx.JSON(500, gin.H{
-			"error":   "jwt service is nil",
-			"message": "internal server error",
-		})
-		return
-	}
-
-	token, err := (*c.jwtService).GenerateBuildingToken(building)
+	token, err := c.Container.GetService("jwt").(base_services.IJWTService).GenerateBuildingToken(building)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{
+		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "failed to generate token",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Login success",
 		"data": gin.H{
 			"id":       building.ID,
@@ -329,73 +352,71 @@ func (c *BuildingController) Login() {
 	})
 }
 
-// 7,get building advertisements
 func (c *BuildingController) GetBuildingAdvertisements() {
-	claims, exists := c.ctx.Get("claims")
+	claims, exists := c.Ctx.Get("claims")
 	if !exists {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	claimsMap, ok := claims.(map[string]interface{})
 	if !ok {
-		c.ctx.JSON(500, gin.H{"error": "invalid claims format"})
+		c.Ctx.JSON(500, gin.H{"error": "invalid claims format"})
 		return
 	}
 
 	buildingIdFloat, ok := claimsMap["buildingId"].(float64)
 	if !ok {
-		c.ctx.JSON(500, gin.H{"error": "invalid building id format"})
+		c.Ctx.JSON(500, gin.H{"error": "invalid building id format"})
 		return
 	}
 
 	buildingId := uint(buildingIdFloat)
-	advertisements, err := c.service.GetBuildingAdvertisements(buildingId)
+	advertisements, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetBuildingAdvertisements(buildingId)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "Failed to get advertisements",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get advertisements success",
 		"data":    advertisements,
 	})
 }
 
-// 8,get building notices
 func (c *BuildingController) GetBuildingNotices() {
-	claims, exists := c.ctx.Get("claims")
+	claims, exists := c.Ctx.Get("claims")
 	if !exists {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	claimsMap, ok := claims.(map[string]interface{})
 	if !ok {
-		c.ctx.JSON(500, gin.H{"error": "invalid claims format"})
+		c.Ctx.JSON(500, gin.H{"error": "invalid claims format"})
 		return
 	}
 
 	buildingIdFloat, ok := claimsMap["buildingId"].(float64)
 	if !ok {
-		c.ctx.JSON(500, gin.H{"error": "invalid building id format"})
+		c.Ctx.JSON(500, gin.H{"error": "invalid building id format"})
 		return
 	}
 
 	buildingId := uint(buildingIdFloat)
-	notices, err := c.service.GetBuildingNotices(buildingId)
+	notices, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetBuildingNotices(buildingId)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "Failed to get notices",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get notices success",
 		"data":    notices,
 	})

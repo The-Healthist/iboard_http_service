@@ -90,7 +90,7 @@ func (s *UploadService) GetUploadParams(uploadDir string) (map[string]interface{
 
 	// Create callback with internal URL
 	callbackParam := CallbackParam{
-		CallbackUrl:      "http://121.40.160.35:10080/api/admin/upload/callback",
+		CallbackUrl:      os.Getenv("CALLBACK_URL"),
 		CallbackBody:     "object=${object}&size=${size}&mimeType=${mimeType}&height=${imageInfo.height}&width=${imageInfo.width}",
 		CallbackBodyType: "application/x-www-form-urlencoded",
 	}

@@ -22,10 +22,16 @@ type AdvertisementService struct {
 }
 
 func NewAdvertisementService(db *gorm.DB) InterfaceAdvertisementService {
+	if db == nil {
+		panic("database connection is nil")
+	}
 	return &AdvertisementService{db: db}
 }
 
 func (s *AdvertisementService) Create(advertisement *base_models.Advertisement) error {
+	if s.db == nil {
+		return errors.New("database connection is nil")
+	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(advertisement).Error; err != nil {
 			return err
@@ -35,6 +41,10 @@ func (s *AdvertisementService) Create(advertisement *base_models.Advertisement) 
 }
 
 func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Advertisement, base_models.PaginationResult, error) {
+	if s.db == nil {
+		return nil, base_models.PaginationResult{}, errors.New("database connection is nil")
+	}
+
 	var advertisements []base_models.Advertisement
 	var total int64
 	db := s.db.Model(&base_models.Advertisement{})
@@ -64,7 +74,7 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 		db = db.Order("created_at ASC")
 	}
 
-	if err := db.Select("id, created_at, updated_at, deleted_at, title, description, type, status, duration, start_time, end_time, display, file_id, is_public").
+	if err := db.Preload("File").
 		Limit(pageSize).Offset(offset).
 		Find(&advertisements).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
@@ -80,7 +90,6 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 		if advertisements[i].Status == "" {
 			advertisements[i].Status = field.Status("active")
 		}
-		advertisements[i].File = nil
 	}
 
 	return advertisements, base_models.PaginationResult{
@@ -91,6 +100,10 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 }
 
 func (s *AdvertisementService) Update(id uint, updates map[string]interface{}) (*base_models.Advertisement, error) {
+	if s.db == nil {
+		return nil, errors.New("database connection is nil")
+	}
+
 	var advertisement base_models.Advertisement
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -113,6 +126,10 @@ func (s *AdvertisementService) Update(id uint, updates map[string]interface{}) (
 }
 
 func (s *AdvertisementService) Delete(ids []uint) error {
+	if s.db == nil {
+		return errors.New("database connection is nil")
+	}
+
 	result := s.db.Delete(&base_models.Advertisement{}, ids)
 	if result.Error != nil {
 		return result.Error
@@ -124,6 +141,10 @@ func (s *AdvertisementService) Delete(ids []uint) error {
 }
 
 func (s *AdvertisementService) GetByID(id uint) (*base_models.Advertisement, error) {
+	if s.db == nil {
+		return nil, errors.New("database connection is nil")
+	}
+
 	var advertisement base_models.Advertisement
 	if err := s.db.Preload("File").First(&advertisement, id).Error; err != nil {
 		return nil, err

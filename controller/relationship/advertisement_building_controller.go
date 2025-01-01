@@ -3,6 +3,7 @@ package http_relationship_controller
 import (
 	"strconv"
 
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/gin-gonic/gin"
 )
@@ -15,18 +16,38 @@ type InterfaceAdvertisementBuildingController interface {
 }
 
 type AdvertisementBuildingController struct {
-	ctx     *gin.Context
-	service relationship_service.InterfaceAdvertisementBuildingService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewAdvertisementBuildingController(
-	ctx *gin.Context,
-	service relationship_service.InterfaceAdvertisementBuildingService,
-) InterfaceAdvertisementBuildingController {
+func NewAdvertisementBuildingController(ctx *gin.Context, container *container.ServiceContainer) *AdvertisementBuildingController {
 	return &AdvertisementBuildingController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
 	}
+}
+
+// HandleFuncAdvertisementBuilding returns a gin.HandlerFunc for the specified method
+func HandleFuncAdvertisementBuilding(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		controller := NewAdvertisementBuildingController(ctx, container)
+		switch method {
+		case "bindBuildings":
+			controller.BindBuildings()
+		case "unbindBuildings":
+			controller.UnbindBuildings()
+		case "getBuildingsByAdvertisement":
+			controller.GetBuildingsByAdvertisement()
+		case "getAdvertisementsByBuilding":
+			controller.GetAdvertisementsByBuilding()
+		default:
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
+func (c *AdvertisementBuildingController) getService() relationship_service.InterfaceAdvertisementBuildingService {
+	return c.Container.GetService("advertisementBuilding").(relationship_service.InterfaceAdvertisementBuildingService)
 }
 
 func (c *AdvertisementBuildingController) BindBuildings() {
@@ -35,8 +56,8 @@ func (c *AdvertisementBuildingController) BindBuildings() {
 		BuildingIDs      []uint `json:"buildingIds" binding:"required,min=1"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
 		return
 	}
 
@@ -47,11 +68,13 @@ func (c *AdvertisementBuildingController) BindBuildings() {
 		AlreadyBound      []map[string]interface{} `json:"alreadyBound,omitempty"`
 	}
 
+	service := c.getService()
+
 	// 检查所有广告是否存在
 	for _, adID := range form.AdvertisementIDs {
-		exists, err := c.service.AdvertisementExists(adID)
+		exists, err := service.AdvertisementExists(adID)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+			c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 			return
 		}
 		if !exists {
@@ -60,9 +83,9 @@ func (c *AdvertisementBuildingController) BindBuildings() {
 	}
 
 	// 检查所有建筑物是否存在
-	missingBuildings, err := c.service.BulkCheckBuildingsExistence(form.BuildingIDs)
+	missingBuildings, err := service.BulkCheckBuildingsExistence(form.BuildingIDs)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if len(missingBuildings) > 0 {
@@ -71,16 +94,16 @@ func (c *AdvertisementBuildingController) BindBuildings() {
 
 	// 如果有不存在的记录，直接返回错误
 	if len(response.NotFoundAds) > 0 || len(response.NotFoundBuildings) > 0 {
-		c.ctx.JSON(404, response)
+		c.Ctx.JSON(404, response)
 		return
 	}
 
 	// 处理每个广告的绑定
 	for _, adID := range form.AdvertisementIDs {
 		// 获取当前绑定的建筑物列表
-		currentBuildings, err := c.service.GetBuildingsByAdvertisementID(adID)
+		currentBuildings, err := service.GetBuildingsByAdvertisementID(adID)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+			c.Ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
 			return
 		}
 
@@ -110,8 +133,8 @@ func (c *AdvertisementBuildingController) BindBuildings() {
 
 		// 执行有效的绑定
 		if len(validBindings) > 0 {
-			if err := c.service.BindBuildings(adID, validBindings); err != nil {
-				c.ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
+			if err := service.BindBuildings(adID, validBindings); err != nil {
+				c.Ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
 				return
 			}
 			response.Success = append(response.Success, map[string]interface{}{
@@ -121,7 +144,7 @@ func (c *AdvertisementBuildingController) BindBuildings() {
 		}
 	}
 
-	c.ctx.JSON(200, response)
+	c.Ctx.JSON(200, response)
 }
 
 func (c *AdvertisementBuildingController) UnbindBuildings() {
@@ -130,30 +153,32 @@ func (c *AdvertisementBuildingController) UnbindBuildings() {
 		BuildingIDs     []uint `json:"buildingIds" binding:"required,min=1"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
 		return
 	}
 
+	service := c.getService()
+
 	// 检查广告是否存在
-	exists, err := c.service.AdvertisementExists(form.AdvertisementID)
+	exists, err := service.AdvertisementExists(form.AdvertisementID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Advertisement not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Advertisement not found"})
 		return
 	}
 
 	// 检查所有建筑物是否存在
-	missingBuildings, err := c.service.BulkCheckBuildingsExistence(form.BuildingIDs)
+	missingBuildings, err := service.BulkCheckBuildingsExistence(form.BuildingIDs)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if len(missingBuildings) > 0 {
-		c.ctx.JSON(404, map[string]interface{}{
+		c.Ctx.JSON(404, map[string]interface{}{
 			"error":              "Some Buildings not found",
 			"missingBuildingIds": missingBuildings,
 		})
@@ -161,9 +186,9 @@ func (c *AdvertisementBuildingController) UnbindBuildings() {
 	}
 
 	// 获取当前绑定的建筑物列表
-	currentBuildings, err := c.service.GetBuildingsByAdvertisementID(form.AdvertisementID)
+	currentBuildings, err := service.GetBuildingsByAdvertisementID(form.AdvertisementID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
 		return
 	}
 
@@ -184,83 +209,87 @@ func (c *AdvertisementBuildingController) UnbindBuildings() {
 	}
 
 	if len(notBoundIDs) > 0 {
-		c.ctx.JSON(400, map[string]interface{}{
+		c.Ctx.JSON(400, map[string]interface{}{
 			"error":               "Some Buildings are not bound to the Advertisement",
 			"notBoundBuildingIds": notBoundIDs,
 		})
 		return
 	}
 
-	if err := c.service.UnbindBuildings(form.AdvertisementID, validUnbind); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Failed to unbind buildings: " + err.Error()})
+	if err := service.UnbindBuildings(form.AdvertisementID, validUnbind); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Failed to unbind buildings: " + err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, map[string]interface{}{"message": "Buildings unbound successfully"})
+	c.Ctx.JSON(200, map[string]interface{}{"message": "Buildings unbound successfully"})
 }
 
 func (c *AdvertisementBuildingController) GetBuildingsByAdvertisement() {
-	adIDStr := c.ctx.Query("advertisementId")
+	adIDStr := c.Ctx.Query("advertisementId")
 	if adIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "advertisementId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "advertisementId is required"})
 		return
 	}
 
 	adID, err := strconv.ParseUint(adIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid advertisementId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid advertisementId"})
 		return
 	}
 
+	service := c.getService()
+
 	// 检查广告是否存在
-	exists, err := c.service.AdvertisementExists(uint(adID))
+	exists, err := service.AdvertisementExists(uint(adID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Advertisement not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Advertisement not found"})
 		return
 	}
 
-	buildings, err := c.service.GetBuildingsByAdvertisementID(uint(adID))
+	buildings, err := service.GetBuildingsByAdvertisementID(uint(adID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch buildings"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch buildings"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": buildings})
+	c.Ctx.JSON(200, gin.H{"data": buildings})
 }
 
 func (c *AdvertisementBuildingController) GetAdvertisementsByBuilding() {
-	buildingIDStr := c.ctx.Query("buildingId")
+	buildingIDStr := c.Ctx.Query("buildingId")
 	if buildingIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "buildingId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "buildingId is required"})
 		return
 	}
 
 	buildingID, err := strconv.ParseUint(buildingIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid buildingId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid buildingId"})
 		return
 	}
 
+	service := c.getService()
+
 	// 检查建筑物是否存在
-	exists, err := c.service.BuildingExists(uint(buildingID))
+	exists, err := service.BuildingExists(uint(buildingID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Building not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Building not found"})
 		return
 	}
 
-	advertisements, err := c.service.GetAdvertisementsByBuildingID(uint(buildingID))
+	advertisements, err := service.GetAdvertisementsByBuildingID(uint(buildingID))
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch advertisements"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch advertisements"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": advertisements})
+	c.Ctx.JSON(200, gin.H{"data": advertisements})
 }

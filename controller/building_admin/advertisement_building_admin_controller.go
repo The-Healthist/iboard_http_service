@@ -7,6 +7,7 @@ import (
 	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	building_admin_services "github.com/The-Healthist/iboard_http_service/services/building_admin"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/The-Healthist/iboard_http_service/utils/response"
@@ -14,24 +15,59 @@ import (
 )
 
 type BuildingAdminAdvertisementController struct {
-	ctx     *gin.Context
-	service building_admin_services.InterfaceBuildingAdminAdvertisementService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
 func NewBuildingAdminAdvertisementController(
 	ctx *gin.Context,
-	service building_admin_services.InterfaceBuildingAdminAdvertisementService,
+	container *container.ServiceContainer,
 ) *BuildingAdminAdvertisementController {
 	return &BuildingAdminAdvertisementController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
+	}
+}
+
+// HandleFuncBuildingAdminAdvertisement returns a gin.HandlerFunc for the specified method
+func HandleFuncBuildingAdminAdvertisement(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "getAdvertisements":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminAdvertisementController(ctx, container)
+			controller.GetAdvertisements()
+		}
+	case "getAdvertisement":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminAdvertisementController(ctx, container)
+			controller.GetAdvertisement()
+		}
+	case "createAdvertisement":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminAdvertisementController(ctx, container)
+			controller.CreateAdvertisement()
+		}
+	case "updateAdvertisement":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminAdvertisementController(ctx, container)
+			controller.UpdateAdvertisement()
+		}
+	case "deleteAdvertisement":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminAdvertisementController(ctx, container)
+			controller.DeleteAdvertisement()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
 	}
 }
 
 func (c *BuildingAdminAdvertisementController) GetAdvertisements() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
@@ -39,8 +75,8 @@ func (c *BuildingAdminAdvertisementController) GetAdvertisements() {
 		Search string `form:"search"`
 		Type   string `form:"type"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -54,8 +90,8 @@ func (c *BuildingAdminAdvertisementController) GetAdvertisements() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -66,39 +102,39 @@ func (c *BuildingAdminAdvertisementController) GetAdvertisements() {
 		"desc":     pagination.Desc,
 	}
 
-	advertisements, paginationResult, err := c.service.Get(email, queryMap, paginationMap)
+	advertisements, paginationResult, err := c.Container.GetService("buildingAdminAdvertisement").(building_admin_services.InterfaceBuildingAdminAdvertisementService).Get(email, queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       advertisements,
 		"pagination": paginationResult,
 	})
 }
 
 func (c *BuildingAdminAdvertisementController) GetAdvertisement() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "invalid advertisement ID"})
+		c.Ctx.JSON(400, gin.H{"error": "invalid advertisement ID"})
 		return
 	}
 
-	advertisement, err := c.service.GetByID(uint(id), email)
+	advertisement, err := c.Container.GetService("buildingAdminAdvertisement").(building_admin_services.InterfaceBuildingAdminAdvertisementService).GetByID(uint(id), email)
 	if err != nil {
-		c.ctx.JSON(404, gin.H{"error": err.Error()})
+		c.Ctx.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": advertisement})
+	c.Ctx.JSON(200, gin.H{"data": advertisement})
 }
 
 type CreateAdvertisementRequest struct {
@@ -115,15 +151,15 @@ type CreateAdvertisementRequest struct {
 }
 
 func (c *BuildingAdminAdvertisementController) CreateAdvertisement() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	var req CreateAdvertisementRequest
-	if err := c.ctx.ShouldBindJSON(&req); err != nil {
-		response.ValidationError(c.ctx, err)
+	if err := c.Ctx.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c.Ctx, err)
 		return
 	}
 
@@ -143,12 +179,12 @@ func (c *BuildingAdminAdvertisementController) CreateAdvertisement() {
 		status = req.Status
 	}
 
-	// 如果提供了 path，查找对应的文件
+	// If path is provided, find the corresponding file
 	var fileID *uint
 	if req.Path != "" {
 		var file base_models.File
 		if err := databases.DB_CONN.Where("path = ?", req.Path).First(&file).Error; err != nil {
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "file not found",
 			})
@@ -167,47 +203,41 @@ func (c *BuildingAdminAdvertisementController) CreateAdvertisement() {
 		EndTime:     endTime,
 		Display:     req.Display,
 		FileID:      fileID,
-		IsPublic:    false, // 强制设置为 false
+		IsPublic:    false, // Force set to false
 	}
 
-	if err := c.service.Create(advertisement, email); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("buildingAdminAdvertisement").(building_admin_services.InterfaceBuildingAdminAdvertisementService).Create(advertisement, email); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create advertisement failed",
 		})
 		return
 	}
 
-	// 重新加载 advertisement 以获取关联的文件信息
+	// Reload advertisement to get associated file information
 	if err := databases.DB_CONN.Preload("File").First(advertisement, advertisement.ID).Error; err != nil {
-		c.ctx.JSON(200, gin.H{
+		c.Ctx.JSON(200, gin.H{
 			"message": "create advertisement success, but failed to load file info",
 			"data":    advertisement,
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create advertisement success",
 		"data":    advertisement,
 	})
 }
 
 func (c *BuildingAdminAdvertisementController) UpdateAdvertisement() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	idStr := c.ctx.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "invalid advertisement ID"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	var form struct {
+		ID          uint                    `json:"id" binding:"required"`
 		Title       string                  `json:"title"`
 		Description string                  `json:"description"`
 		Type        field.AdvertisementType `json:"type"`
@@ -218,8 +248,8 @@ func (c *BuildingAdminAdvertisementController) UpdateAdvertisement() {
 		Path        string                  `json:"path"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -242,59 +272,70 @@ func (c *BuildingAdminAdvertisementController) UpdateAdvertisement() {
 	if form.EndTime != nil {
 		updates["end_time"] = form.EndTime
 	}
-	updates["is_public"] = false // 强制设置为 false
+	updates["is_public"] = false // Force set to false
 
-	// 如果提供了新的 path
+	// If new path is provided
 	if form.Path != "" {
-		var file base_models.File
-		if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
-			c.ctx.JSON(400, gin.H{
+		// Start transaction
+		tx := databases.DB_CONN.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// Find new file
+		var newFile base_models.File
+		if err := tx.Where("path = ?", form.Path).First(&newFile).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
 				"error":   "File not found",
 				"message": err.Error(),
 			})
 			return
 		}
-		updates["file_id"] = file.ID
+
+		updates["file_id"] = newFile.ID
+		if err := tx.Commit().Error; err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   "Failed to update file",
+				"message": err.Error(),
+			})
+			return
+		}
 	}
 
-	if err := c.service.Update(uint(id), email, updates); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 获取更新后的广告信息
-	updatedAd, err := c.service.GetByID(uint(id), email)
-	if err != nil {
-		c.ctx.JSON(200, gin.H{
-			"message": "update advertisement success, but failed to load updated data",
+	if err := c.Container.GetService("buildingAdminAdvertisement").(building_admin_services.InterfaceBuildingAdminAdvertisementService).Update(form.ID, email, updates); err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "update advertisement failed",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "update advertisement success",
-		"data":    updatedAd,
 	})
 }
 
 func (c *BuildingAdminAdvertisementController) DeleteAdvertisement() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "invalid advertisement ID"})
+		c.Ctx.JSON(400, gin.H{"error": "invalid advertisement ID"})
 		return
 	}
 
-	if err := c.service.Delete(uint(id), email); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("buildingAdminAdvertisement").(building_admin_services.InterfaceBuildingAdminAdvertisementService).Delete(uint(id), email); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "Advertisement deleted successfully"})
+	c.Ctx.JSON(200, gin.H{"message": "delete advertisement success"})
 }

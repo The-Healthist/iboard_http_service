@@ -7,27 +7,71 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	building_admin_services "github.com/The-Healthist/iboard_http_service/services/building_admin"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildingAdminFileController struct {
-	ctx     *gin.Context
-	service building_admin_services.InterfaceBuildingAdminFileService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewBuildingAdminFileController(ctx *gin.Context, service building_admin_services.InterfaceBuildingAdminFileService) *BuildingAdminFileController {
+func NewBuildingAdminFileController(
+	ctx *gin.Context,
+	container *container.ServiceContainer,
+) *BuildingAdminFileController {
 	return &BuildingAdminFileController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
+	}
+}
+
+// HandleFuncBuildingAdminFile returns a gin.HandlerFunc for the specified method
+func HandleFuncBuildingAdminFile(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "getFiles":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminFileController(ctx, container)
+			controller.GetFiles()
+		}
+	case "getFile":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminFileController(ctx, container)
+			controller.GetFile()
+		}
+	case "uploadFile":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminFileController(ctx, container)
+			controller.UploadFile()
+		}
+	case "updateFile":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminFileController(ctx, container)
+			controller.UpdateFile()
+		}
+	case "deleteFile":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminFileController(ctx, container)
+			controller.DeleteFile()
+		}
+	case "downloadFile":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminFileController(ctx, container)
+			controller.DownloadFile()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
 	}
 }
 
 func (c *BuildingAdminFileController) GetFiles() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
@@ -36,8 +80,8 @@ func (c *BuildingAdminFileController) GetFiles() {
 		MimeType string `form:"mimeType"`
 		Oss      string `form:"oss"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -51,8 +95,8 @@ func (c *BuildingAdminFileController) GetFiles() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -63,48 +107,48 @@ func (c *BuildingAdminFileController) GetFiles() {
 		"desc":     pagination.Desc,
 	}
 
-	files, paginationResult, err := c.service.Get(email, queryMap, paginationMap)
+	files, paginationResult, err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).Get(email, queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       files,
 		"pagination": paginationResult,
 	})
 }
 
 func (c *BuildingAdminFileController) GetFile() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid file ID"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid file ID"})
 		return
 	}
 
-	file, err := c.service.GetByID(uint(id), email)
+	file, err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).GetByID(uint(id), email)
 	if err != nil {
-		c.ctx.JSON(404, gin.H{"error": err.Error()})
+		c.Ctx.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get file success",
 		"data":    file,
 	})
 }
 
 func (c *BuildingAdminFileController) UploadFile() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
@@ -117,8 +161,8 @@ func (c *BuildingAdminFileController) UploadFile() {
 		Type     field.FileUploaderType `json:"type"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -132,7 +176,7 @@ func (c *BuildingAdminFileController) UploadFile() {
 
 	// 验证 MD5
 	if calculatedMd5 != form.Md5 {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "MD5 mismatch",
 			"message": "File integrity check failed",
 		})
@@ -149,42 +193,36 @@ func (c *BuildingAdminFileController) UploadFile() {
 		UploaderType: "building_admin",
 	}
 
-	if err := c.service.Create(file, email); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).Create(file, email); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create file failed",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create file success",
 		"data":    file,
 	})
 }
 
 func (c *BuildingAdminFileController) UpdateFile() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	idStr := c.ctx.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid file ID"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	var form struct {
+		ID       uint   `json:"id" binding:"required"`
 		Path     string `json:"path"`
 		MimeType string `json:"mimeType"`
 		Oss      string `json:"oss"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -199,67 +237,67 @@ func (c *BuildingAdminFileController) UpdateFile() {
 		updates["oss"] = form.Oss
 	}
 
-	if err := c.service.Update(uint(id), email, updates); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).Update(form.ID, email, updates); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
 	// 获取更新后的文件信息
-	updatedFile, err := c.service.GetByID(uint(id), email)
+	updatedFile, err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).GetByID(form.ID, email)
 	if err != nil {
-		c.ctx.JSON(200, gin.H{
+		c.Ctx.JSON(200, gin.H{
 			"message": "update file success, but failed to load updated data",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "update file success",
 		"data":    updatedFile,
 	})
 }
 
 func (c *BuildingAdminFileController) DeleteFile() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid file ID"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid file ID"})
 		return
 	}
 
-	if err := c.service.Delete(uint(id), email); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).Delete(uint(id), email); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete file success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete file success"})
 }
 
 func (c *BuildingAdminFileController) DownloadFile() {
-	email := c.ctx.GetString("email")
+	email := c.Ctx.GetString("email")
 	if email == "" {
-		c.ctx.JSON(401, gin.H{"error": "unauthorized"})
+		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid file ID"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid file ID"})
 		return
 	}
 
-	file, err := c.service.GetByID(uint(id), email)
+	file, err := c.Container.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService).GetByID(uint(id), email)
 	if err != nil {
-		c.ctx.JSON(404, gin.H{"error": err.Error()})
+		c.Ctx.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.File(file.Path)
+	c.Ctx.File(file.Path)
 }

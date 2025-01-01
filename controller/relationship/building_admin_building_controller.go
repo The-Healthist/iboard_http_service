@@ -3,6 +3,7 @@ package http_relationship_controller
 import (
 	"strconv"
 
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/gin-gonic/gin"
 )
@@ -15,18 +16,38 @@ type InterfaceBuildingAdminBuildingController interface {
 }
 
 type BuildingAdminBuildingController struct {
-	ctx     *gin.Context
-	service relationship_service.InterfaceBuildingAdminBuildingService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewBuildingAdminBuildingController(
-	ctx *gin.Context,
-	service relationship_service.InterfaceBuildingAdminBuildingService,
-) InterfaceBuildingAdminBuildingController {
+func NewBuildingAdminBuildingController(ctx *gin.Context, container *container.ServiceContainer) *BuildingAdminBuildingController {
 	return &BuildingAdminBuildingController{
-		ctx:     ctx,
-		service: service,
+		Ctx:       ctx,
+		Container: container,
 	}
+}
+
+// HandleFuncBuildingAdminBuilding returns a gin.HandlerFunc for the specified method
+func HandleFuncBuildingAdminBuilding(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		controller := NewBuildingAdminBuildingController(ctx, container)
+		switch method {
+		case "bindBuildings":
+			controller.BindBuildings()
+		case "unbindBuildings":
+			controller.UnbindBuildings()
+		case "getBuildingsByAdmin":
+			controller.GetBuildingsByAdmin()
+		case "getAdminsByBuilding":
+			controller.GetAdminsByBuilding()
+		default:
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
+func (c *BuildingAdminBuildingController) getService() relationship_service.InterfaceBuildingAdminBuildingService {
+	return c.Container.GetService("buildingAdminBuilding").(relationship_service.InterfaceBuildingAdminBuildingService)
 }
 
 func (c *BuildingAdminBuildingController) BindBuildings() {
@@ -36,8 +57,8 @@ func (c *BuildingAdminBuildingController) BindBuildings() {
 	}
 
 	// 绑定 JSON 参数并验证
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
 		return
 	}
 
@@ -50,9 +71,9 @@ func (c *BuildingAdminBuildingController) BindBuildings() {
 
 	// 检查所有 BuildingAdmin 是否存在
 	for _, adminID := range form.BuildingAdminIDs {
-		exists, err := c.service.BuildingAdminExists(adminID)
+		exists, err := c.getService().BuildingAdminExists(adminID)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+			c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 			return
 		}
 		if !exists {
@@ -61,9 +82,9 @@ func (c *BuildingAdminBuildingController) BindBuildings() {
 	}
 
 	// 检查所有 Building 是否存在
-	missingBuildings, err := c.service.BulkCheckBuildingsExistence(form.BuildingIDs)
+	missingBuildings, err := c.getService().BulkCheckBuildingsExistence(form.BuildingIDs)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if len(missingBuildings) > 0 {
@@ -72,16 +93,16 @@ func (c *BuildingAdminBuildingController) BindBuildings() {
 
 	// 如果有不存在的记录，直接返回错误
 	if len(response.NotFoundAdmins) > 0 || len(response.NotFoundBuildings) > 0 {
-		c.ctx.JSON(404, response)
+		c.Ctx.JSON(404, response)
 		return
 	}
 
 	// 处理每个管理员的绑定
 	for _, adminID := range form.BuildingAdminIDs {
 		// 获取当前绑定的建筑物列表
-		currentBuildings, err := c.service.GetBuildingsByAdminID(adminID)
+		currentBuildings, err := c.getService().GetBuildingsByAdminID(adminID)
 		if err != nil {
-			c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+			c.Ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
 			return
 		}
 
@@ -111,8 +132,8 @@ func (c *BuildingAdminBuildingController) BindBuildings() {
 
 		// 执行有效的绑定
 		if len(validBindings) > 0 {
-			if err := c.service.BindBuildings(adminID, validBindings); err != nil {
-				c.ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
+			if err := c.getService().BindBuildings(adminID, validBindings); err != nil {
+				c.Ctx.JSON(400, gin.H{"error": "Failed to bind buildings: " + err.Error()})
 				return
 			}
 			response.Success = append(response.Success, map[string]interface{}{
@@ -122,7 +143,7 @@ func (c *BuildingAdminBuildingController) BindBuildings() {
 		}
 	}
 
-	c.ctx.JSON(200, response)
+	c.Ctx.JSON(200, response)
 }
 
 func (c *BuildingAdminBuildingController) UnbindBuildings() {
@@ -132,30 +153,30 @@ func (c *BuildingAdminBuildingController) UnbindBuildings() {
 	}
 
 	// 绑定 JSON 参数并验证
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Invalid input parameters: " + err.Error()})
 		return
 	}
 
 	// 检查 BuildingAdmin 是否存在
-	exists, err := c.service.BuildingAdminExists(form.BuildingAdminID)
+	exists, err := c.getService().BuildingAdminExists(form.BuildingAdminID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "BuildingAdmin not found"})
+		c.Ctx.JSON(404, gin.H{"error": "BuildingAdmin not found"})
 		return
 	}
 
 	// 检查所有 Building 是否存在
-	missingBuildings, err := c.service.BulkCheckBuildingsExistence(form.BuildingIDs)
+	missingBuildings, err := c.getService().BulkCheckBuildingsExistence(form.BuildingIDs)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if len(missingBuildings) > 0 {
-		c.ctx.JSON(404, map[string]interface{}{
+		c.Ctx.JSON(404, map[string]interface{}{
 			"error":              "Some Buildings not found",
 			"missingBuildingIds": missingBuildings,
 		})
@@ -163,9 +184,9 @@ func (c *BuildingAdminBuildingController) UnbindBuildings() {
 	}
 
 	// 获取当前绑定的建筑物列表
-	currentBuildings, err := c.service.GetBuildingsByAdminID(form.BuildingAdminID)
+	currentBuildings, err := c.getService().GetBuildingsByAdminID(form.BuildingAdminID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch current buildings"})
 		return
 	}
 
@@ -187,7 +208,7 @@ func (c *BuildingAdminBuildingController) UnbindBuildings() {
 	}
 
 	if len(notBoundIDs) > 0 {
-		c.ctx.JSON(400, map[string]interface{}{
+		c.Ctx.JSON(400, map[string]interface{}{
 			"error":               "Some Buildings are not bound to the BuildingAdmin",
 			"notBoundBuildingIds": notBoundIDs,
 		})
@@ -195,80 +216,80 @@ func (c *BuildingAdminBuildingController) UnbindBuildings() {
 	}
 
 	// 解绑建筑物
-	if err := c.service.UnbindBuildings(form.BuildingAdminID, validUnbind); err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Failed to unbind buildings: " + err.Error()})
+	if err := c.getService().UnbindBuildings(form.BuildingAdminID, validUnbind); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Failed to unbind buildings: " + err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, map[string]interface{}{"message": "Buildings unbound successfully"})
+	c.Ctx.JSON(200, map[string]interface{}{"message": "Buildings unbound successfully"})
 }
 
 func (c *BuildingAdminBuildingController) GetBuildingsByAdmin() {
-	buildingAdminIDStr := c.ctx.Query("buildingAdminId")
+	buildingAdminIDStr := c.Ctx.Query("buildingAdminId")
 	if buildingAdminIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "buildingAdminId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "buildingAdminId is required"})
 		return
 	}
 
 	buildingAdminID, err := strconv.ParseUint(buildingAdminIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid buildingAdminId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid buildingAdminId"})
 		return
 	}
 
 	adminID := uint(buildingAdminID)
 
 	// 检查 BuildingAdmin 是否存在
-	exists, err := c.service.BuildingAdminExists(adminID)
+	exists, err := c.getService().BuildingAdminExists(adminID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "BuildingAdmin not found"})
+		c.Ctx.JSON(404, gin.H{"error": "BuildingAdmin not found"})
 		return
 	}
 
-	buildings, err := c.service.GetBuildingsByAdminID(adminID)
+	buildings, err := c.getService().GetBuildingsByAdminID(adminID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch buildings"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch buildings"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": buildings})
+	c.Ctx.JSON(200, gin.H{"data": buildings})
 }
 
 func (c *BuildingAdminBuildingController) GetAdminsByBuilding() {
-	buildingIDStr := c.ctx.Query("buildingId")
+	buildingIDStr := c.Ctx.Query("buildingId")
 	if buildingIDStr == "" {
-		c.ctx.JSON(400, gin.H{"error": "buildingId is required"})
+		c.Ctx.JSON(400, gin.H{"error": "buildingId is required"})
 		return
 	}
 
 	buildingID, err := strconv.ParseUint(buildingIDStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": "Invalid buildingId"})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid buildingId"})
 		return
 	}
 
 	bID := uint(buildingID)
 
 	// 检查 Building 是否存在
-	exists, err := c.service.BuildingExists(bID)
+	exists, err := c.getService().BuildingExists(bID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Internal server error"})
+		c.Ctx.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 	if !exists {
-		c.ctx.JSON(404, gin.H{"error": "Building not found"})
+		c.Ctx.JSON(404, gin.H{"error": "Building not found"})
 		return
 	}
 
-	admins, err := c.service.GetAdminsByBuildingID(bID)
+	admins, err := c.getService().GetAdminsByBuildingID(bID)
 	if err != nil {
-		c.ctx.JSON(500, gin.H{"error": "Failed to fetch administrators"})
+		c.Ctx.JSON(500, gin.H{"error": "Failed to fetch administrators"})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"data": admins})
+	c.Ctx.JSON(200, gin.H{"data": admins})
 }

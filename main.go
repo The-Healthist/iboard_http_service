@@ -152,7 +152,7 @@ func main() {
 	log.Println("Routes registered successfully")
 
 	// Start server
-	serverAddr := "0.0.0.0:10032"
+	serverAddr := "0.0.0.0:10031"
 	log.Printf("Starting HTTP server on %s...\n", serverAddr)
 	if err := r.Run(serverAddr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

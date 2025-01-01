@@ -8,6 +8,7 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
@@ -23,20 +24,54 @@ type InterfaceFileController interface {
 }
 
 type FileController struct {
-	ctx        *gin.Context
-	service    base_services.InterfaceFileService
-	jwtService *base_services.IJWTService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewFileController(
-	ctx *gin.Context,
-	service base_services.InterfaceFileService,
-	jwtService *base_services.IJWTService,
-) InterfaceFileController {
+func NewFileController(ctx *gin.Context, container *container.ServiceContainer) *FileController {
 	return &FileController{
-		ctx:        ctx,
-		service:    service,
-		jwtService: jwtService,
+		Ctx:       ctx,
+		Container: container,
+	}
+}
+
+// HandleFuncFile returns a gin.HandlerFunc for the specified method
+func HandleFuncFile(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "create":
+		return func(ctx *gin.Context) {
+			controller := NewFileController(ctx, container)
+			controller.Create()
+		}
+	case "createMany":
+		return func(ctx *gin.Context) {
+			controller := NewFileController(ctx, container)
+			controller.CreateMany()
+		}
+	case "get":
+		return func(ctx *gin.Context) {
+			controller := NewFileController(ctx, container)
+			controller.Get()
+		}
+	case "update":
+		return func(ctx *gin.Context) {
+			controller := NewFileController(ctx, container)
+			controller.Update()
+		}
+	case "delete":
+		return func(ctx *gin.Context) {
+			controller := NewFileController(ctx, container)
+			controller.Delete()
+		}
+	case "getOne":
+		return func(ctx *gin.Context) {
+			controller := NewFileController(ctx, container)
+			controller.GetOne()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
 	}
 }
 
@@ -51,8 +86,8 @@ func (c *FileController) Create() {
 		Md5          string                 `json:"md5"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -75,15 +110,15 @@ func (c *FileController) Create() {
 		Md5:          form.Md5,
 	}
 
-	if err := c.service.Create(file); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("file").(base_services.InterfaceFileService).Create(file); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create file failed",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create file success",
 		"data":    file,
 	})
@@ -100,8 +135,8 @@ func (c *FileController) CreateMany() {
 		Md5          string                 `json:"md5"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&forms); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&forms); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -129,8 +164,8 @@ func (c *FileController) CreateMany() {
 	}
 
 	for _, file := range files {
-		if err := c.service.Create(file); err != nil {
-			c.ctx.JSON(400, gin.H{
+		if err := c.Container.GetService("file").(base_services.InterfaceFileService).Create(file); err != nil {
+			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "create file failed",
 				"file":    file,
@@ -139,7 +174,7 @@ func (c *FileController) CreateMany() {
 		}
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "create files success",
 		"data":    files,
 	})
@@ -151,8 +186,8 @@ func (c *FileController) Get() {
 		Oss          string `form:"oss"`
 		UploaderType string `form:"uploaderType"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -166,8 +201,8 @@ func (c *FileController) Get() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -178,13 +213,13 @@ func (c *FileController) Get() {
 		"desc":     pagination.Desc,
 	}
 
-	files, paginationResult, err := c.service.Get(queryMap, paginationMap)
+	files, paginationResult, err := c.Container.GetService("file").(base_services.InterfaceFileService).Get(queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       files,
 		"pagination": paginationResult,
 	})
@@ -201,8 +236,8 @@ func (c *FileController) Update() {
 		UploaderType string `json:"uploaderType"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -226,60 +261,60 @@ func (c *FileController) Update() {
 		updates["uploader_type"] = form.UploaderType
 	}
 
-	if err := c.service.Update(form.ID, updates); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("file").(base_services.InterfaceFileService).Update(form.ID, updates); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "update file success"})
+	c.Ctx.JSON(200, gin.H{"message": "update file success"})
 }
 
 func (c *FileController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := c.service.Delete(form.IDs); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Container.GetService("file").(base_services.InterfaceFileService).Delete(form.IDs); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete file success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete file success"})
 }
 
 func (c *FileController) GetOne() {
-	if c.jwtService == nil {
-		c.ctx.JSON(500, gin.H{
+	if c.Container.GetService("jwt") == nil {
+		c.Ctx.JSON(500, gin.H{
 			"error":   "jwt service is nil",
 			"message": "internal server error",
 		})
 		return
 	}
 
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Invalid file ID",
 			"message": "Please check the ID format",
 		})
 		return
 	}
 
-	file, err := c.service.GetByID(uint(id))
+	file, err := c.Container.GetService("file").(base_services.InterfaceFileService).GetByID(uint(id))
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "Failed to get file",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get file success",
 		"data":    file,
 	})

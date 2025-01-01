@@ -1,13 +1,13 @@
 package http_base_controller
 
 import (
-	"log"
 	"strconv"
 	"time"
 
 	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"github.com/gin-gonic/gin"
@@ -22,25 +22,61 @@ type InterfaceAdvertisementController interface {
 	GetOne()
 }
 
+// AdvertisementController handles advertisement operations
 type AdvertisementController struct {
-	ctx        *gin.Context
-	service    base_services.InterfaceAdvertisementService
-	jwtService *base_services.IJWTService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
-func NewAdvertisementController(
-	ctx *gin.Context,
-	service base_services.InterfaceAdvertisementService,
-	jwtService *base_services.IJWTService,
-) InterfaceAdvertisementController {
+// NewAdvertisementController creates a new advertisement controller
+func NewAdvertisementController(ctx *gin.Context, container *container.ServiceContainer) *AdvertisementController {
 	return &AdvertisementController{
-		ctx:        ctx,
-		service:    service,
-		jwtService: jwtService,
+		Ctx:       ctx,
+		Container: container,
 	}
 }
 
-// 1,create
+// HandleFuncAdvertisement returns a gin.HandlerFunc for the specified method
+func HandleFuncAdvertisement(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "create":
+		return func(ctx *gin.Context) {
+			controller := NewAdvertisementController(ctx, container)
+			controller.Create()
+		}
+	case "createMany":
+		return func(ctx *gin.Context) {
+			controller := NewAdvertisementController(ctx, container)
+			controller.CreateMany()
+		}
+	case "get":
+		return func(ctx *gin.Context) {
+			controller := NewAdvertisementController(ctx, container)
+			controller.Get()
+		}
+	case "update":
+		return func(ctx *gin.Context) {
+			controller := NewAdvertisementController(ctx, container)
+			controller.Update()
+		}
+	case "delete":
+		return func(ctx *gin.Context) {
+			controller := NewAdvertisementController(ctx, container)
+			controller.Delete()
+		}
+	case "getOne":
+		return func(ctx *gin.Context) {
+			controller := NewAdvertisementController(ctx, container)
+			controller.GetOne()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
+	}
+}
+
+// Create creates a new advertisement
 func (c *AdvertisementController) Create() {
 	var form struct {
 		Title       string                     `json:"title" binding:"required"`
@@ -55,8 +91,8 @@ func (c *AdvertisementController) Create() {
 		Path        string                     `json:"path"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -79,12 +115,21 @@ func (c *AdvertisementController) Create() {
 		status = form.Status
 	}
 
-	// 如果提供了 path，查找对应的文件
+	// Start transaction
+	tx := databases.DB_CONN.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// If path is provided, find the corresponding file
 	var fileID *uint
 	if form.Path != "" {
 		var file base_models.File
-		if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
-			c.ctx.JSON(400, gin.H{
+		if err := tx.Where("path = ?", form.Path).First(&file).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "file not found",
 			})
@@ -106,30 +151,40 @@ func (c *AdvertisementController) Create() {
 		IsPublic:    form.IsPublic,
 	}
 
-	if err := c.service.Create(advertisement); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Create(advertisement); err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create advertisement failed",
 		})
 		return
 	}
 
-	// 重新加载 advertisement 以获取关联的文件信息
-	if err := databases.DB_CONN.Preload("File").First(advertisement, advertisement.ID).Error; err != nil {
-		c.ctx.JSON(200, gin.H{
+	// Reload advertisement to get associated file information
+	if err := tx.Preload("File").First(advertisement, advertisement.ID).Error; err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(200, gin.H{
 			"message": "create advertisement success, but failed to load file info",
 			"data":    advertisement,
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	if err := tx.Commit().Error; err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to commit transaction",
+		})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{
 		"message": "create advertisement success",
 		"data":    advertisement,
 	})
 }
 
-// 2,createMany
+// CreateMany creates multiple advertisements
 func (c *AdvertisementController) CreateMany() {
 	var forms []struct {
 		Title       string                     `json:"title" binding:"required"`
@@ -140,12 +195,12 @@ func (c *AdvertisementController) CreateMany() {
 		StartTime   *time.Time                 `json:"startTime"`
 		EndTime     *time.Time                 `json:"endTime"`
 		Display     field.AdvertisementDisplay `json:"display"`
-		FileID      *uint                      `json:"fileId"`
 		IsPublic    bool                       `json:"isPublic"`
+		FileID      *uint                      `json:"fileId"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&forms); err != nil {
-		c.ctx.JSON(400, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&forms); err != nil {
+		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
 		})
@@ -169,9 +224,18 @@ func (c *AdvertisementController) CreateMany() {
 		advertisements = append(advertisements, advertisement)
 	}
 
+	// Start transaction
+	tx := databases.DB_CONN.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
 	for _, advertisement := range advertisements {
-		if err := c.service.Create(advertisement); err != nil {
-			c.ctx.JSON(400, gin.H{
+		if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Create(advertisement); err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
 				"error":         err.Error(),
 				"message":       "create advertisement failed",
 				"advertisement": advertisement,
@@ -180,20 +244,28 @@ func (c *AdvertisementController) CreateMany() {
 		}
 	}
 
-	c.ctx.JSON(200, gin.H{
+	if err := tx.Commit().Error; err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to commit transaction",
+		})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{
 		"message": "create advertisements success",
 		"data":    advertisements,
 	})
 }
 
-// 3,get
+// Get retrieves advertisements based on search criteria
 func (c *AdvertisementController) Get() {
 	var searchQuery struct {
 		Search string `form:"search"`
 		Type   string `form:"type"`
 	}
-	if err := c.ctx.ShouldBindQuery(&searchQuery); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&searchQuery); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -207,8 +279,8 @@ func (c *AdvertisementController) Get() {
 		Desc:     false,
 	}
 
-	if err := c.ctx.ShouldBindQuery(&pagination); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindQuery(&pagination); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -219,46 +291,45 @@ func (c *AdvertisementController) Get() {
 		"desc":     pagination.Desc,
 	}
 
-	advertisements, paginationResult, err := c.service.Get(queryMap, paginationMap)
+	advertisements, paginationResult, err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Get(queryMap, paginationMap)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"data":       advertisements,
 		"pagination": paginationResult,
 	})
 }
 
-// 4,update
+// Update updates an advertisement
 func (c *AdvertisementController) Update() {
 	var form struct {
-		ID          uint                    `json:"id" binding:"required"`
-		Title       string                  `json:"title"`
-		Description string                  `json:"description"`
-		Type        field.AdvertisementType `json:"type"`
-		Status      field.Status            `json:"status"`
-		StartTime   *time.Time              `json:"startTime"`
-		EndTime     *time.Time              `json:"endTime"`
-		IsPublic    *bool                   `json:"isPublic"`
-		Path        string                  `json:"path"`
+		ID          uint                       `json:"id" binding:"required"`
+		Title       string                     `json:"title"`
+		Description string                     `json:"description"`
+		Type        field.AdvertisementType    `json:"type"`
+		Status      field.Status               `json:"status"`
+		StartTime   *time.Time                 `json:"startTime"`
+		EndTime     *time.Time                 `json:"endTime"`
+		Display     field.AdvertisementDisplay `json:"display"`
+		IsPublic    *bool                      `json:"isPublic"`
+		Path        string                     `json:"path"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 获取原有的广告信息
-	advertisement, err := c.service.GetByID(form.ID)
-	if err != nil {
-		c.ctx.JSON(400, gin.H{
-			"error":   "Failed to get advertisement",
-			"message": err.Error(),
-		})
-		return
-	}
+	// Start transaction
+	tx := databases.DB_CONN.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
 	updates := map[string]interface{}{}
 	if form.Title != "" {
@@ -279,136 +350,63 @@ func (c *AdvertisementController) Update() {
 	if form.EndTime != nil {
 		updates["end_time"] = form.EndTime
 	}
+	if form.Display != "" {
+		updates["display"] = form.Display
+	}
 	if form.IsPublic != nil {
 		updates["is_public"] = *form.IsPublic
 	}
 
-	// 如果提供了新的 path
+	// If new path is provided
 	if form.Path != "" {
-		// 开启事务
-		tx := databases.DB_CONN.Begin()
-		defer func() {
-			if r := recover(); r != nil {
-				tx.Rollback()
-			}
-		}()
-
-		// 查找新的文件
 		var newFile base_models.File
 		if err := tx.Where("path = ?", form.Path).First(&newFile).Error; err != nil {
 			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
+			c.Ctx.JSON(400, gin.H{
 				"error":   "File not found",
 				"message": err.Error(),
 			})
 			return
 		}
 
-		// 保存旧文件ID
-		var oldFileID *uint
-		if advertisement.FileID != nil {
-			oldFileID = advertisement.FileID
-		}
-
-		// 1. 更新广告的文件ID
 		updates["file_id"] = newFile.ID
-		if err := tx.Model(&base_models.Advertisement{}).Where("id = ?", form.ID).Updates(updates).Error; err != nil {
-			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
-				"error":   "Failed to update advertisement",
-				"message": err.Error(),
-			})
-			return
-		}
+	}
 
-		// 2. 如果有旧文件，检查是否需要删除
-		if oldFileID != nil {
-			// 检查这个文件是否还被其他地方引用
-			var adCount int64
-			var noticeCount int64
-			if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", oldFileID).Count(&adCount).Error; err != nil {
-				tx.Rollback()
-				c.ctx.JSON(400, gin.H{
-					"error":   "Failed to check advertisement references",
-					"message": err.Error(),
-				})
-				return
-			}
-			if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", oldFileID).Count(&noticeCount).Error; err != nil {
-				tx.Rollback()
-				c.ctx.JSON(400, gin.H{
-					"error":   "Failed to check notice references",
-					"message": err.Error(),
-				})
-				return
-			}
-
-			// 3. 如果没有其他引用，则删除文件
-			if adCount == 0 && noticeCount == 0 {
-				if err := tx.Delete(&base_models.File{}, "id = ?", oldFileID).Error; err != nil {
-					tx.Rollback()
-					c.ctx.JSON(400, gin.H{
-						"error":   "Failed to delete old file",
-						"message": err.Error(),
-					})
-					return
-				}
-			}
-		}
-
-		// 4. 获取更新后的广告信息
-		var updatedAd base_models.Advertisement
-		if err := tx.Preload("File").First(&updatedAd, form.ID).Error; err != nil {
-			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
-				"error":   "Failed to get updated advertisement",
-				"message": err.Error(),
-			})
-			return
-		}
-
-		// 提交事务
-		if err := tx.Commit().Error; err != nil {
-			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
-				"error":   "Failed to commit transaction",
-				"message": err.Error(),
-			})
-			return
-		}
-
-		c.ctx.JSON(200, gin.H{
-			"message": "update advertisement success",
-			"data":    updatedAd,
+	advertisement, err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Update(form.ID, updates)
+	if err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "update advertisement failed",
 		})
 		return
 	}
 
-	// 如果没有更新文件，则直接更新其他字段
-	updatedAd, err := c.service.Update(form.ID, updates)
-	if err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := tx.Commit().Error; err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to commit transaction",
+		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "update advertisement success",
-		"data":    updatedAd,
+		"data":    advertisement,
 	})
 }
 
-// 5,delete
+// Delete deletes advertisements
 func (c *AdvertisementController) Delete() {
 	var form struct {
 		IDs []uint `json:"ids" binding:"required"`
 	}
-
-	if err := c.ctx.ShouldBindJSON(&form); err != nil {
-		c.ctx.JSON(400, gin.H{"error": err.Error()})
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 开启事务
+	// Start transaction
 	tx := databases.DB_CONN.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -416,28 +414,18 @@ func (c *AdvertisementController) Delete() {
 		}
 	}()
 
-	// 1. 获取所有要删除的广告信息
+	// Get all advertisements to be deleted
 	var advertisements []base_models.Advertisement
 	if err := tx.Where("id IN ?", form.IDs).Find(&advertisements).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
+		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to get advertisements",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 2. 解除与建筑物的关联
-	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE advertisement_id IN ?", form.IDs).Error; err != nil {
-		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
-			"error":   "Failed to unbind buildings",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	// 3. 收集所有关联的文件ID
+	// Collect all file IDs
 	var fileIDs []uint
 	for _, ad := range advertisements {
 		if ad.FileID != nil {
@@ -445,106 +433,50 @@ func (c *AdvertisementController) Delete() {
 		}
 	}
 
-	// 4. 解除文件绑定
-	if err := tx.Model(&base_models.Advertisement{}).Where("id IN ?", form.IDs).Update("file_id", nil).Error; err != nil {
+	// Delete advertisement-building associations
+	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE advertisement_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
-			"error":   "Failed to unbind files",
+		c.Ctx.JSON(400, gin.H{
+			"error":   "Failed to delete advertisement-building associations",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 5. 检查每个文件的引用并软删除未被引用的文件
-	for _, fileID := range fileIDs {
-		var adCount int64
-		var noticeCount int64
-
-		if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", fileID).Count(&adCount).Error; err != nil {
-			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
-				"error":   "Failed to check advertisement references",
-				"message": err.Error(),
-			})
-			return
-		}
-
-		if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", fileID).Count(&noticeCount).Error; err != nil {
-			tx.Rollback()
-			c.ctx.JSON(400, gin.H{
-				"error":   "Failed to check notice references",
-				"message": err.Error(),
-			})
-			return
-		}
-
-		if adCount == 0 && noticeCount == 0 {
-			log.Println("fileID", fileID)
-			if err := tx.Delete(&base_models.File{}, "id = ?", fileID).Error; err != nil {
-				tx.Rollback()
-				c.ctx.JSON(400, gin.H{
-					"error":   "Failed to delete file",
-					"message": err.Error(),
-				})
-				return
-			}
-		}
-	}
-
-	// 6. 删除广告
-	if err := tx.Delete(&base_models.Advertisement{}, form.IDs).Error; err != nil {
+	// Delete advertisements
+	if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Delete(form.IDs); err != nil {
 		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
-			"error":   "Failed to delete advertisements",
-			"message": err.Error(),
-		})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 提交事务
 	if err := tx.Commit().Error; err != nil {
-		tx.Rollback()
-		c.ctx.JSON(400, gin.H{
-			"error":   "Failed to commit transaction",
-			"message": err.Error(),
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to commit transaction",
 		})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{"message": "delete advertisement success"})
+	c.Ctx.JSON(200, gin.H{"message": "delete advertisement success"})
 }
 
-// 6,getOne
+// GetOne retrieves a single advertisement
 func (c *AdvertisementController) GetOne() {
-	// First verify JWT token
-	if c.jwtService == nil {
-		c.ctx.JSON(500, gin.H{
-			"error":   "jwt service is nil",
-			"message": "internal server error",
-		})
-		return
-	}
-
-	idStr := c.ctx.Param("id")
+	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
-			"error":   "Invalid advertisement ID",
-			"message": "Please check the ID format",
-		})
+		c.Ctx.JSON(400, gin.H{"error": "invalid advertisement ID"})
 		return
 	}
 
-	advertisement, err := c.service.GetByID(uint(id))
+	advertisement, err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).GetByID(uint(id))
 	if err != nil {
-		c.ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "Failed to get advertisement",
-		})
+		c.Ctx.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.ctx.JSON(200, gin.H{
+	c.Ctx.JSON(200, gin.H{
 		"message": "Get advertisement success",
 		"data":    advertisement,
 	})

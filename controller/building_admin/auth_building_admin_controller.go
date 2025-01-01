@@ -5,24 +5,37 @@ import (
 	"strings"
 
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildingAdminAuthController struct {
-	ctx                  *gin.Context
-	buildingAdminService base_services.InterfaceBuildingAdminService
-	jwtService           base_services.IJWTService
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
 func NewBuildingAdminAuthController(
 	ctx *gin.Context,
-	buildingAdminService base_services.InterfaceBuildingAdminService,
-	jwtService base_services.IJWTService,
+	container *container.ServiceContainer,
 ) *BuildingAdminAuthController {
 	return &BuildingAdminAuthController{
-		ctx:                  ctx,
-		buildingAdminService: buildingAdminService,
-		jwtService:           jwtService,
+		Ctx:       ctx,
+		Container: container,
+	}
+}
+
+// HandleFuncBuildingAdminAuth returns a gin.HandlerFunc for the specified method
+func HandleFuncBuildingAdminAuth(container *container.ServiceContainer, method string) gin.HandlerFunc {
+	switch method {
+	case "login":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingAdminAuthController(ctx, container)
+			controller.Login()
+		}
+	default:
+		return func(ctx *gin.Context) {
+			ctx.JSON(400, gin.H{"error": "invalid method"})
+		}
 	}
 }
 
@@ -32,45 +45,45 @@ func (c *BuildingAdminAuthController) Login() {
 		Password string `json:"password" binding:"required"`
 	}
 
-	if err := c.ctx.ShouldBindJSON(&loginDTO); err != nil {
-		c.ctx.JSON(http.StatusBadRequest, gin.H{
+	if err := c.Ctx.ShouldBindJSON(&loginDTO); err != nil {
+		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid input",
 			"details": err.Error(),
 		})
 		return
 	}
 
-	// 清理输入
+	// Clean input
 	loginDTO.Email = strings.TrimSpace(loginDTO.Email)
 	loginDTO.Password = strings.TrimSpace(loginDTO.Password)
 
-	// 验证凭据
-	buildingAdmin, err := c.buildingAdminService.GetByEmail(loginDTO.Email)
+	// Validate credentials
+	buildingAdmin, err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).GetByEmail(loginDTO.Email)
 	if err != nil {
-		c.ctx.JSON(http.StatusUnauthorized, gin.H{
+		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Invalid credentials",
 		})
 		return
 	}
 
-	// 验证密码
-	if !c.buildingAdminService.ValidatePassword(buildingAdmin, loginDTO.Password) {
-		c.ctx.JSON(http.StatusUnauthorized, gin.H{
+	// Validate password
+	if !c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).ValidatePassword(buildingAdmin, loginDTO.Password) {
+		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Invalid credentials",
 		})
 		return
 	}
 
-	// 生成 token
-	token, err := c.jwtService.GenerateBuildingAdminToken(buildingAdmin)
+	// Generate token
+	token, err := c.Container.GetService("jwt").(base_services.IJWTService).GenerateBuildingAdminToken(buildingAdmin)
 	if err != nil {
-		c.ctx.JSON(http.StatusInternalServerError, gin.H{
+		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to generate token",
 		})
 		return
 	}
 
-	c.ctx.JSON(http.StatusOK, gin.H{
+	c.Ctx.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
 		"token":   token,
 		"data": gin.H{

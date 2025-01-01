@@ -161,7 +161,7 @@ func (s *BuildingService) GetByCredentials(ismartID string, password string) (*b
 	if err := s.db.Where("ismart_id = ? AND password = ?", ismartID, password).
 		Preload("Notices").
 		Preload("Notices.File").
-		Preload("Advertisements", " active = ?", true).
+		Preload("Advertisements", "status = ?", "active").
 		Preload("Advertisements.File").
 		First(&building).Error; err != nil {
 		return nil, fmt.Errorf("invalid credentials: %v", err)
