@@ -25,6 +25,8 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 	// Upload routes
 	r.POST("/api/admin/upload/params", middlewares.AuthorizeJWTUpload(), http_base_controller.HandleFuncUpload(serviceContainer, "getUploadParams"))
 	r.POST("/api/admin/upload/callback", http_base_controller.HandleFuncUpload(serviceContainer, "uploadCallback"))
+	r.POST("/api/admin/upload/callback_sync", http_base_controller.HandleFuncUpload(serviceContainer, "uploadCallbackSync"))
+	r.POST("/api/admin/upload/params_sync", middlewares.AuthorizeJWTUpload(), http_base_controller.HandleFuncUpload(serviceContainer, "getUploadParamsSync"))
 
 	// Admin routes
 	adminGroup := r.Group("/api/admin")
@@ -75,6 +77,7 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		adminGroup.GET("/building/:id", http_base_controller.HandleFuncBuilding(serviceContainer, "getOne"))
 		adminGroup.PUT("/building", http_base_controller.HandleFuncBuilding(serviceContainer, "update"))
 		adminGroup.DELETE("/building", http_base_controller.HandleFuncBuilding(serviceContainer, "delete"))
+		adminGroup.POST("/building/:id/sync_notice", http_base_controller.HandleFuncBuilding(serviceContainer, "syncNotice"))
 
 		// Relationship routes
 		// Building Admin Building routes

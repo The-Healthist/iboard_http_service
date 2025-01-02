@@ -121,11 +121,29 @@ func main() {
 
 	// Initialize Redis connection
 	log.Println("Initializing Redis connection...")
-	if err := databases.InitRedis(); err != nil {
-		log.Fatal("Failed to initialize Redis:", err)
+	maxRedisRetries := 5
+	var redisErr error
+	for i := 0; i < maxRedisRetries; i++ {
+		redisErr = databases.InitRedis()
+		if redisErr == nil {
+			log.Println("Redis connection established successfully")
+			break
+		}
+		log.Printf("Failed to initialize Redis (attempt %d/%d): %v", i+1, maxRedisRetries, redisErr)
+		if i < maxRedisRetries-1 {
+			time.Sleep(time.Second * 3)
+		}
 	}
-	defer databases.CloseRedis()
-	log.Println("Redis connection established successfully")
+	if redisErr != nil {
+		log.Fatal("Failed to initialize Redis after multiple attempts:", redisErr)
+	}
+
+	// Ensure Redis connection is closed when the program exits
+	defer func() {
+		if err := databases.CloseRedis(); err != nil {
+			log.Printf("Error closing Redis connection: %v", err)
+		}
+	}()
 
 	// Configure Gin
 	log.Println("Configuring Gin framework...")

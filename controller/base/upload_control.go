@@ -44,6 +44,16 @@ func HandleFuncUpload(container *container.ServiceContainer, method string) gin.
 			controller := NewUploadController(ctx, container)
 			controller.UploadCallback()
 		}
+	case "uploadCallbackSync":
+		return func(ctx *gin.Context) {
+			controller := NewUploadController(ctx, container)
+			controller.UploadCallbackSync()
+		}
+	case "getUploadParamsSync":
+		return func(ctx *gin.Context) {
+			controller := NewUploadController(ctx, container)
+			controller.GetUploadParamsSync()
+		}
 	default:
 		return func(ctx *gin.Context) {
 			ctx.JSON(400, gin.H{"error": "invalid method"})
@@ -290,5 +300,133 @@ func (c *UploadController) UploadCallback() {
 	// Return success response
 	c.Ctx.JSON(http.StatusOK, gin.H{
 		"Status": "OK",
+	})
+}
+func (c *UploadController) UploadCallbackSync() {
+	c.Ctx.JSON(http.StatusOK, gin.H{
+		"Status": "OK",
+	})
+}
+func (c *UploadController) GetUploadParamsSync() {
+	log.Println("Processing upload params request")
+
+	// Get JWT claims
+	claims, exists := c.Ctx.Get("claims")
+	if !exists {
+		log.Println("No JWT claims found in context")
+		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Unauthorized",
+		})
+		return
+	}
+
+	mapClaims, ok := claims.(jwt.MapClaims)
+	if !ok {
+		log.Println("Invalid JWT claims format")
+		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Invalid token claims format",
+		})
+		return
+	}
+
+	// Parse and validate claims
+	var uploaderID uint
+	var uploaderType string
+	var uploaderEmail string
+
+	isAdmin, _ := mapClaims["isAdmin"].(bool)
+	isBuildingAdmin, _ := mapClaims["isBuildingAdmin"].(bool)
+
+	if isAdmin {
+		// Handle super admin case
+		if id, ok := mapClaims["id"].(float64); ok {
+			uploaderID = uint(id)
+			uploaderType = "superAdmin"
+			if email, ok := mapClaims["email"].(string); ok {
+				uploaderEmail = email
+			}
+			log.Printf("Identified as SuperAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
+		} else {
+			log.Println("Invalid admin ID in token")
+			c.Ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid admin ID",
+			})
+			return
+		}
+	} else if isBuildingAdmin {
+		// Handle building admin case
+		if id, ok := mapClaims["id"].(float64); ok {
+			uploaderID = uint(id)
+			uploaderType = "buildingAdmin"
+			if email, ok := mapClaims["email"].(string); ok {
+				uploaderEmail = email
+			}
+			log.Printf("Identified as BuildingAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
+		} else {
+			log.Println("Invalid building admin ID in token")
+			c.Ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid building admin ID",
+			})
+			return
+		}
+	} else {
+		log.Println("Invalid uploader type")
+		c.Ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid uploader type",
+		})
+		return
+	}
+
+	// Save uploader info to cache
+	if err := c.Container.GetService("upload").(base_services.IUploadService).SaveUploaderInfo(uploaderID, uploaderType, uploaderEmail); err != nil {
+		log.Printf("Failed to save uploader info: %v\n", err)
+		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to process uploader info",
+		})
+		return
+	}
+
+	// Process file upload parameters
+	var req struct {
+		FileName string `json:"fileName" binding:"required"`
+	}
+
+	if err := c.Ctx.ShouldBindJSON(&req); err != nil {
+		log.Printf("Invalid request parameters: %v\n", err)
+		c.Ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing required parameters",
+		})
+		return
+	}
+
+	// Generate directory and filename
+	currentTime := time.Now()
+	dir := currentTime.Format("2006-01-02") + "/"
+	ext := path.Ext(req.FileName)
+	newFileName := uuid.New().String() + ext
+	fullPath := dir + newFileName
+
+	// Get upload policy
+	policy, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsSync(fullPath)
+	if err != nil {
+		log.Printf("Failed to get upload params: %v\n", err)
+		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Save filename mapping
+	if err := c.Container.GetService("upload").(base_services.IUploadService).SaveFileNameMapping(newFileName, fullPath); err != nil {
+		log.Printf("Failed to save filename mapping: %v\n", err)
+		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to save filename mapping",
+		})
+		return
+	}
+
+	log.Printf("Successfully generated upload params for file: %s\n", fullPath)
+	c.Ctx.JSON(http.StatusOK, gin.H{
+		"data": policy,
 	})
 }

@@ -1,14 +1,16 @@
 package container
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"sync"
+	"time"
 
-	"os"
-
+	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	building_admin_services "github.com/The-Healthist/iboard_http_service/services/building_admin"
 	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
-	"github.com/go-redis/redis/v8"
 	"gorm.io/gorm"
 )
 
@@ -47,6 +49,23 @@ func NewServiceContainer(db *gorm.DB) *ServiceContainer {
 	if db == nil {
 		panic("database connection is nil")
 	}
+
+	// 验证 Redis 连接
+	if databases.REDIS_CONN == nil {
+		log.Println("Redis connection not initialized, attempting to initialize...")
+		if err := databases.InitRedis(); err != nil {
+			panic(fmt.Sprintf("failed to initialize redis: %v", err))
+		}
+	}
+
+	// 测试 Redis 连接
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := databases.REDIS_CONN.Ping(ctx).Err(); err != nil {
+		panic(fmt.Sprintf("redis connection test failed: %v", err))
+	}
+
 	container := &ServiceContainer{
 		db: db,
 	}
@@ -60,6 +79,13 @@ func (c *ServiceContainer) initializeServices() {
 		panic("database connection is nil")
 	}
 
+	// 确保 Redis 已经初始化
+	if databases.REDIS_CONN == nil {
+		if err := databases.InitRedis(); err != nil {
+			panic(fmt.Sprintf("failed to initialize redis: %v", err))
+		}
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -71,7 +97,9 @@ func (c *ServiceContainer) initializeServices() {
 	c.noticeService = base_services.NewNoticeService(c.db)
 	c.buildingAdminService = base_services.NewBuildingAdminService(c.db)
 	c.superAdminService = base_services.NewSuperAdminService(c.db)
-	c.uploadService = base_services.NewUploadService(c.db, c.getRedisClient())
+
+	// 使用全局 Redis 连接
+	c.uploadService = base_services.NewUploadService(c.db, databases.REDIS_CONN)
 
 	// Initialize Relationship Services
 	c.buildingAdminBuildingService = relationship_service.NewBuildingAdminBuildingService(c.db)
@@ -142,79 +170,4 @@ func (c *ServiceContainer) GetService(name string) interface{} {
 	default:
 		return nil
 	}
-}
-
-// For backward compatibility and type safety, we'll keep the typed getters
-// but they'll use GetService internally
-// func (c *ServiceContainer) GetAdvertisementService() base_services.InterfaceAdvertisementService {
-// 	return c.GetService("advertisement").(base_services.InterfaceAdvertisementService)
-// }
-
-// func (c *ServiceContainer) GetBuildingService() base_services.InterfaceBuildingService {
-// 	return c.GetService("building").(base_services.InterfaceBuildingService)
-// }
-
-// func (c *ServiceContainer) GetBuildingAdminService() base_services.InterfaceBuildingAdminService {
-// 	return c.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService)
-// }
-
-// func (c *ServiceContainer) GetNoticeService() base_services.InterfaceNoticeService {
-// 	return c.GetService("notice").(base_services.InterfaceNoticeService)
-// }
-
-// func (c *ServiceContainer) GetFileService() base_services.InterfaceFileService {
-// 	return c.GetService("file").(base_services.InterfaceFileService)
-// }
-
-// func (c *ServiceContainer) GetJWTService() base_services.IJWTService {
-// 	return c.GetService("jwt").(base_services.IJWTService)
-// }
-
-// func (c *ServiceContainer) GetSuperAdminService() base_services.InterfaceSuperAdminService {
-// 	return c.GetService("superAdmin").(base_services.InterfaceSuperAdminService)
-// }
-
-// func (c *ServiceContainer) GetEmailService() base_services.IEmailService {
-// 	return c.GetService("email").(base_services.IEmailService)
-// }
-
-// func (c *ServiceContainer) GetBuildingAdminAdvertisementService() building_admin_services.InterfaceBuildingAdminAdvertisementService {
-// 	return c.GetService("buildingAdminAdvertisement").(building_admin_services.InterfaceBuildingAdminAdvertisementService)
-// }
-
-// func (c *ServiceContainer) GetBuildingAdminNoticeService() building_admin_services.InterfaceBuildingAdminNoticeService {
-// 	return c.GetService("buildingAdminNotice").(building_admin_services.InterfaceBuildingAdminNoticeService)
-// }
-
-// func (c *ServiceContainer) GetBuildingAdminFileService() building_admin_services.InterfaceBuildingAdminFileService {
-// 	return c.GetService("buildingAdminFile").(building_admin_services.InterfaceBuildingAdminFileService)
-// }
-
-// func (c *ServiceContainer) GetAdvertisementBuildingService() relationship_service.InterfaceAdvertisementBuildingService {
-// 	return c.GetService("advertisementBuilding").(relationship_service.InterfaceAdvertisementBuildingService)
-// }
-
-// func (c *ServiceContainer) GetNoticeBuildingService() relationship_service.InterfaceNoticeBuildingService {
-// 	return c.GetService("noticeBuilding").(relationship_service.InterfaceNoticeBuildingService)
-// }
-
-// func (c *ServiceContainer) GetBuildingAdminBuildingService() relationship_service.InterfaceBuildingAdminBuildingService {
-// 	return c.GetService("buildingAdminBuilding").(relationship_service.InterfaceBuildingAdminBuildingService)
-// }
-
-// func (c *ServiceContainer) GetFileAdvertisementService() relationship_service.InterfaceFileAdvertisementService {
-// 	return c.GetService("fileAdvertisement").(relationship_service.InterfaceFileAdvertisementService)
-// }
-
-// func (c *ServiceContainer) GetFileNoticeService() relationship_service.InterfaceFileNoticeService {
-// 	return c.GetService("fileNotice").(relationship_service.InterfaceFileNoticeService)
-// }
-
-// Helper function to get Redis client
-func (c *ServiceContainer) getRedisClient() *redis.Client {
-	return redis.NewClient(&redis.Options{
-		Addr:     os.Getenv("REDIS_ADDR"),
-		Password: os.Getenv("REDIS_PASSWORD"),
-		DB:       0,
-	})
 }

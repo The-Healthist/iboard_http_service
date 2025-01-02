@@ -24,6 +24,7 @@ import (
 
 type IUploadService interface {
 	GetUploadParams(uploadDir string) (map[string]interface{}, error)
+	GetUploadParamsSync(uploadDir string) (map[string]interface{}, error)
 	SaveCallbackData(data *CallbackData) error
 	SaveFileNameMapping(newFileName string, dirPath string) error
 	GetLatestFileName() (string, error)
@@ -91,6 +92,78 @@ func (s *UploadService) GetUploadParams(uploadDir string) (map[string]interface{
 	// Create callback with internal URL
 	callbackParam := CallbackParam{
 		CallbackUrl:      os.Getenv("CALLBACK_URL"),
+		CallbackBody:     "object=${object}&size=${size}&mimeType=${mimeType}&height=${imageInfo.height}&width=${imageInfo.width}",
+		CallbackBodyType: "application/x-www-form-urlencoded",
+	}
+	log.Printf("CallbackParam: %+v\n", callbackParam)
+
+	// Convert callback parameters to JSON
+	callbackStr, err := json.Marshal(callbackParam)
+	if err != nil {
+		return nil, fmt.Errorf("callback JSON serialization failed: %v", err)
+	}
+	callbackBase64 := base64.StdEncoding.EncodeToString(callbackStr)
+
+	// Create policy
+	configStruct := ConfigStruct{
+		Expiration: tokenExpire,
+		Conditions: [][]string{
+			{"starts-with", "$key", uploadDir},
+			{"eq", "$success_action_status", "200"},
+		},
+	}
+
+	// Generate policy
+	policyJson, err := json.Marshal(configStruct)
+	if err != nil {
+		return nil, fmt.Errorf("policy JSON serialization failed: %v", err)
+	}
+	policyBase64 := base64.StdEncoding.EncodeToString(policyJson)
+
+	// Generate signature
+	h := hmac.New(sha1.New, []byte(os.Getenv("ACCESS_KEY_SECRET")))
+	io.WriteString(h, policyBase64)
+	signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+	// Create policy token
+	policyToken := PolicyToken{
+		AccessKeyId: os.Getenv("ACCESS_KEY_ID"),
+		Host:        os.Getenv("HOST"),
+		Expire:      expireEnd,
+		Signature:   signature,
+		Directory:   uploadDir,
+		Policy:      policyBase64,
+		Callback:    callbackBase64,
+	}
+
+	// Convert to map
+	tokenJson, err := json.Marshal(policyToken)
+	if err != nil {
+		return nil, fmt.Errorf("policy token JSON serialization failed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(tokenJson, &result); err != nil {
+		return nil, fmt.Errorf("failed to convert policy token to map: %v", err)
+	}
+
+	return result, nil
+}
+func (s *UploadService) GetUploadParamsSync(uploadDir string) (map[string]interface{}, error) {
+	now := time.Now().Unix()
+	expireEnd := now + s.expireTime
+	tokenExpire := time.Unix(expireEnd, 0).UTC().Format("2006-01-02T15:04:05Z")
+
+	// Store uploadDir in cache
+	cacheKey := fmt.Sprintf("upload:dir:%d", now)
+	err := s.cache.Set(s.cache.Context(), cacheKey, uploadDir, time.Duration(s.expireTime)*time.Second).Err()
+	if err != nil {
+		return nil, fmt.Errorf("failed to cache upload dir: %v", err)
+	}
+
+	// Create callback with internal URL
+	callbackParam := CallbackParam{
+		CallbackUrl:      os.Getenv("CALLBACK_URL_SYNC"),
 		CallbackBody:     "object=${object}&size=${size}&mimeType=${mimeType}&height=${imageInfo.height}&width=${imageInfo.width}",
 		CallbackBodyType: "application/x-www-form-urlencoded",
 	}

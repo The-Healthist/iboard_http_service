@@ -424,14 +424,14 @@ func (c *AdvertisementController) Delete() {
 		})
 		return
 	}
-
+	// TODO:
 	// Collect all file IDs
-	var fileIDs []uint
-	for _, ad := range advertisements {
-		if ad.FileID != nil {
-			fileIDs = append(fileIDs, *ad.FileID)
-		}
-	}
+	// var fileIDs []uint
+	// for _, ad := range advertisements {
+	// 	if ad.FileID != nil {
+	// 		fileIDs = append(fileIDs, *ad.FileID)
+	// 	}
+	// }
 
 	// Delete advertisement-building associations
 	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE advertisement_id IN ?", form.IDs).Error; err != nil {
