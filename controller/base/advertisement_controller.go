@@ -406,7 +406,7 @@ func (c *AdvertisementController) Delete() {
 		return
 	}
 
-	// Start transaction
+	// 开启事务
 	tx := databases.DB_CONN.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -414,7 +414,7 @@ func (c *AdvertisementController) Delete() {
 		}
 	}()
 
-	// Get all advertisements to be deleted
+	// 1. 获取所有要删除的广告信息
 	var advertisements []base_models.Advertisement
 	if err := tx.Where("id IN ?", form.IDs).Find(&advertisements).Error; err != nil {
 		tx.Rollback()
@@ -424,32 +424,82 @@ func (c *AdvertisementController) Delete() {
 		})
 		return
 	}
-	// TODO:
-	// Collect all file IDs
-	// var fileIDs []uint
-	// for _, ad := range advertisements {
-	// 	if ad.FileID != nil {
-	// 		fileIDs = append(fileIDs, *ad.FileID)
-	// 	}
-	// }
 
-	// Delete advertisement-building associations
+	// 2. 解除与建筑物的关联
 	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE advertisement_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
 		c.Ctx.JSON(400, gin.H{
-			"error":   "Failed to delete advertisement-building associations",
+			"error":   "Failed to unbind buildings",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// Delete advertisements
-	if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Delete(form.IDs); err != nil {
+	// 3. 收集所有关联的文件ID
+	var fileIDs []uint
+	for _, ad := range advertisements {
+		if ad.FileID != nil {
+			fileIDs = append(fileIDs, *ad.FileID)
+		}
+	}
+
+	// 4. 解除文件绑定
+	if err := tx.Model(&base_models.Advertisement{}).Where("id IN ?", form.IDs).Update("file_id", nil).Error; err != nil {
 		tx.Rollback()
-		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		c.Ctx.JSON(400, gin.H{
+			"error":   "Failed to unbind files",
+			"message": err.Error(),
+		})
 		return
 	}
 
+	// 5. 检查每个文件的引用并删除未被引用的文件
+	for _, fileID := range fileIDs {
+		var adCount int64
+		var noticeCount int64
+
+		if err := tx.Model(&base_models.Advertisement{}).Where("file_id = ?", fileID).Count(&adCount).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
+				"error":   "Failed to check advertisement references",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", fileID).Count(&noticeCount).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
+				"error":   "Failed to check notice references",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		// 如果没有其他引用，删除文件
+		if adCount == 0 && noticeCount == 0 {
+			if err := tx.Delete(&base_models.File{}, fileID).Error; err != nil {
+				tx.Rollback()
+				c.Ctx.JSON(400, gin.H{
+					"error":   "Failed to delete file",
+					"message": err.Error(),
+				})
+				return
+			}
+		}
+	}
+
+	// 6. 删除广告
+	if err := tx.Delete(&base_models.Advertisement{}, form.IDs).Error; err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   "Failed to delete advertisements",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 提交事务
 	if err := tx.Commit().Error; err != nil {
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),

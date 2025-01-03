@@ -27,6 +27,15 @@ const (
 	NoticeTypeGovernment NoticeType = "government"
 )
 
+type NoticeOldType string
+
+const (
+	NoticeOldTypeUrgent     NoticeOldType = "urgent"
+	NoticeOldTypeCommon     NoticeOldType = "common"
+	NoticeOldTypeIo         NoticeOldType = "io"
+	NoticeOldTypeGovernment NoticeOldType = "gov"
+)
+
 // notice status
 type Status string
 

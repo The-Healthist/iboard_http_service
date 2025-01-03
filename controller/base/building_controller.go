@@ -230,7 +230,7 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
-	// Start transaction
+	// start transaction
 	tx := databases.DB_CONN.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -238,9 +238,9 @@ func (c *BuildingController) Delete() {
 		}
 	}()
 
-	// 1. Get buildings to delete
+	// 1. get all buildings to be deleted
 	var buildings []base_models.Building
-	if err := tx.Where("id IN ?", form.IDs).Find(&buildings).Error; err != nil {
+	if err := tx.Preload("Notices").Preload("Advertisements").Where("id IN ?", form.IDs).Find(&buildings).Error; err != nil {
 		tx.Rollback()
 		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to get buildings",
@@ -249,27 +249,58 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
-	// 2. Remove advertisement associations
-	if err := tx.Exec("DELETE FROM advertisement_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
-		tx.Rollback()
-		c.Ctx.JSON(400, gin.H{
-			"error":   "Failed to unbind advertisements",
-			"message": err.Error(),
-		})
-		return
+	// 2. collect all file ids of notices and advertisements
+	fileIDMap := make(map[uint]bool)
+	var noticeIDs []uint
+	var advertisementIDs []uint
+	for _, building := range buildings {
+		for _, notice := range building.Notices {
+			if notice.FileID != nil {
+				fileIDMap[*notice.FileID] = true
+			}
+			noticeIDs = append(noticeIDs, notice.ID)
+		}
+		for _, ad := range building.Advertisements {
+			if ad.FileID != nil {
+				fileIDMap[*ad.FileID] = true
+			}
+			advertisementIDs = append(advertisementIDs, ad.ID)
+		}
 	}
 
-	// 3. Remove notice associations
-	if err := tx.Exec("DELETE FROM notice_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
-		tx.Rollback()
-		c.Ctx.JSON(400, gin.H{
-			"error":   "Failed to unbind notices",
-			"message": err.Error(),
-		})
-		return
+	// convert map to slice
+	var fileIDs []uint
+	for fileID := range fileIDMap {
+		fileIDs = append(fileIDs, fileID)
 	}
 
-	// 4. Remove admin associations
+	// 3. unbind notices
+	if len(noticeIDs) > 0 {
+		// unbind notice-building
+		if err := tx.Exec("DELETE FROM notice_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
+				"error":   "Failed to unbind notices from buildings",
+				"message": err.Error(),
+			})
+			return
+		}
+	}
+
+	// 4. unbind advertisements
+	if len(advertisementIDs) > 0 {
+		// unbind advertisement-building
+		if err := tx.Exec("DELETE FROM advertisement_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
+				"error":   "Failed to unbind advertisements from buildings",
+				"message": err.Error(),
+			})
+			return
+		}
+	}
+
+	// 5. unbind admins
 	if err := tx.Exec("DELETE FROM building_admins_buildings WHERE building_id IN ?", form.IDs).Error; err != nil {
 		tx.Rollback()
 		c.Ctx.JSON(400, gin.H{
@@ -279,8 +310,8 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
-	// 5. Delete buildings
-	if err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Delete(form.IDs); err != nil {
+	// 6. delete buildings
+	if err := tx.Delete(&base_models.Building{}, form.IDs).Error; err != nil {
 		tx.Rollback()
 		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to delete buildings",
@@ -289,6 +320,7 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
+	// commit transaction
 	if err := tx.Commit().Error; err != nil {
 		tx.Rollback()
 		c.Ctx.JSON(400, gin.H{
@@ -443,28 +475,28 @@ func (c *BuildingController) GetBuildingNotices() {
 }
 
 func (c *BuildingController) SyncNotice() {
-	// 从URL参数获取建筑ID
+	// get building id from url param
 	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.Ctx.JSON(400, gin.H{
-			"error":   "无效的建筑ID",
-			"message": "请检查ID格式",
+			"error":   "Invalid building ID",
+			"message": "Please check the ID format",
 		})
 		return
 	}
 
-	// 获取建筑信息以获取ismartId
+	// get building info to get ismartId
 	building, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetByID(uint(id))
 	if err != nil {
 		c.Ctx.JSON(400, gin.H{
-			"error":   "获取建筑信息失败",
+			"error":   "Failed to get building information",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 准备请求老系统的API
+	// prepare request to old system api
 	url := "https://uqf0jqfm77.execute-api.ap-east-1.amazonaws.com/prod/v1/building_board/building-notices"
 	reqBody := struct {
 		BlgID string `json:"blg_id"`
@@ -475,24 +507,24 @@ func (c *BuildingController) SyncNotice() {
 	reqBodyJSON, err := json.Marshal(reqBody)
 	if err != nil {
 		c.Ctx.JSON(400, gin.H{
-			"error":   "准备请求数据失败",
+			"error":   "Failed to prepare request data",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 请求老系统获取通知列表
+	// request old system to get notice list
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(reqBodyJSON))
 	if err != nil {
 		c.Ctx.JSON(400, gin.H{
-			"error":   "从老系统获取通知失败",
+			"error":   "Failed to get notices from old system",
 			"message": err.Error(),
 		})
 		return
 	}
 	defer resp.Body.Close()
 
-	// 解析响应数据
+	// parse response data
 	var respBody []struct {
 		ID        int    `json:"id"`
 		MessTitle string `json:"mess_title"`
@@ -502,52 +534,48 @@ func (c *BuildingController) SyncNotice() {
 
 	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
 		c.Ctx.JSON(400, gin.H{
-			"error":   "解析响应数据失败",
+			"error":   "Failed to parse response data",
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// 处理每个通知
+	// process each notice
 	var successCount int
 	var failedNotices []string
 	var hasSyncedCount int
 
 	for _, oldNotice := range respBody {
-		// 下载PDF文件
+		// download pdf file
 		fileResp, err := http.Get(oldNotice.MessFile)
 		if err != nil {
-			failedNotices = append(failedNotices, fmt.Sprintf("下载通知ID %d 的文件失败: %v", oldNotice.ID, err))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to download file for notice ID %d: %v", oldNotice.ID, err))
 			continue
 		}
 
-		// 读取文件内容
+		// read file content
 		fileContent, err := io.ReadAll(fileResp.Body)
 		fileResp.Body.Close()
 		if err != nil {
-			failedNotices = append(failedNotices, fmt.Sprintf("读取通知ID %d 的文件内容失败: %v", oldNotice.ID, err))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to read file content for notice ID %d: %v", oldNotice.ID, err))
 			continue
 		}
-		//计算文件大小
+
 		fileSize := len(fileContent)
-		// 计算文件md5
 		md5Hash := md5.Sum(fileContent)
 		md5Str := hex.EncodeToString(md5Hash[:])
-		//获取文件mimeType
 		mimeType := http.DetectContentType(fileContent)
 
-		log.Println(mimeType, fileSize, md5Str) //////////////////////////////////////
-
-		// 获取上传者信息从token
+		// get uploader info from token
 		claims, exists := c.Ctx.Get("claims")
 		if !exists {
-			failedNotices = append(failedNotices, fmt.Sprintf("获取通知ID %d 的上传者信息失败: token claims not found", oldNotice.ID))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to get uploader info for notice ID %d: token claims not found", oldNotice.ID))
 			continue
 		}
 
 		mapClaims, ok := claims.(jwt.MapClaims)
 		if !ok {
-			failedNotices = append(failedNotices, fmt.Sprintf("获取通知ID %d 的上传者信息失败: invalid claims format", oldNotice.ID))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to get uploader info for notice ID %d: invalid claims format", oldNotice.ID))
 			continue
 		}
 
@@ -566,22 +594,22 @@ func (c *BuildingController) SyncNotice() {
 		}
 
 		if uploaderID == 0 {
-			failedNotices = append(failedNotices, fmt.Sprintf("获取通知ID %d 的上传者信息失败: invalid uploader info", oldNotice.ID))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to get uploader info for notice ID %d: invalid uploader info", oldNotice.ID))
 			continue
 		}
 
-		// 生成文件名并获取上传参数
+		// generate file name and get upload params
 		currentTime := time.Now()
 		dir := currentTime.Format("2006-01-02") + "/"
 		fileName := fmt.Sprintf("%s.pdf", uuid.New().String())
 		objectKey := dir + fileName
 		uploadParams, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsSync(objectKey)
 		if err != nil {
-			failedNotices = append(failedNotices, fmt.Sprintf("获取通知ID %d 的上传参数失败: %v", oldNotice.ID, err))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to get upload params for notice ID %d: %v", oldNotice.ID, err))
 			continue
 		}
 
-		// 创建文件记录前，先检查MD5是否存在
+		// check if md5 exists before create file record
 		var existingFile base_models.File
 		var shouldUpload bool = true
 		var shouldAddFile bool = true
@@ -589,31 +617,31 @@ func (c *BuildingController) SyncNotice() {
 
 		err = databases.DB_CONN.Where("md5 = ?", md5Str).First(&existingFile).Error
 		if err == nil {
-			// 文件已存在，检查是否已经与通知关联
+			// file exists, check if it is associated with notice
 			var notice base_models.Notice
 			var noticeExists bool
 
-			// 检查文件是否与通知关联
+			// check if file is associated with notice
 			err := databases.DB_CONN.Where("file_id = ?", existingFile.ID).First(&notice).Error
 			noticeExists = err == nil
 
 			if noticeExists {
-				// 检查通知是否与当前建筑关联
+				// check if notice is associated with current building
 				var count int64
 				err = databases.DB_CONN.Table("notice_buildings").
 					Where("notice_id = ? AND building_id = ?", notice.ID, id).
 					Count(&count).Error
 				if err == nil && count > 0 {
-					// 通知已经与当前建筑关联，跳过处理
+					// notice is associated with current building, skip processing
 					hasSyncedCount++
-					log.Printf("通知ID %d 已经同步过，跳过处理", oldNotice.ID)
+					log.Printf("Notice ID %d has already been synced, skipping", oldNotice.ID)
 					continue
 				}
 
 				if err := databases.DB_CONN.Table("notice_buildings").
 					Where("notice_id = ?", notice.ID).
 					Count(&count).Error; err == nil && count > 0 {
-					// 通知已绑定其他建筑，需要创建新文件和通知
+					// notice is associated with other building, need to create new file and notice
 					shouldUpload = true
 					shouldAddFile = true
 					fileForNotice = &base_models.File{
@@ -627,27 +655,27 @@ func (c *BuildingController) SyncNotice() {
 						Md5:          md5Str,
 					}
 				} else {
-					// 通知存在但未绑定任何建筑，只需绑定到当前建筑
+					// notice exists but not associated with any building, bind to current building only
 					shouldUpload = false
 					shouldAddFile = false
 					fileForNotice = &existingFile
 
-					// 直接绑定通知到当前建筑
+					// bind notice to current building directly
 					if err := databases.DB_CONN.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)", notice.ID, id).Error; err != nil {
-						failedNotices = append(failedNotices, fmt.Sprintf("绑定通知ID %d 到建筑物失败: %v", oldNotice.ID, err))
+						failedNotices = append(failedNotices, fmt.Sprintf("Failed to bind notice ID %d to building: %v", oldNotice.ID, err))
 						continue
 					}
 					successCount++
 					continue
 				}
 			} else {
-				// 文件存在但未关联通知，使用现有文件创建新通知
+				// file exists but not associated with notice, use existing file to create new notice
 				shouldUpload = false
 				shouldAddFile = false
 				fileForNotice = &existingFile
 			}
 		} else if err == gorm.ErrRecordNotFound {
-			// 文件不存在，需要全部创建
+			// file not exists, need to create all
 			shouldUpload = true
 			shouldAddFile = true
 			fileForNotice = &base_models.File{
@@ -661,25 +689,25 @@ func (c *BuildingController) SyncNotice() {
 				Md5:          md5Str,
 			}
 		} else {
-			failedNotices = append(failedNotices, fmt.Sprintf("检查通知ID %d 的文件MD5失败: %v", oldNotice.ID, err))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to check MD5 for notice ID %d: %v", oldNotice.ID, err))
 			continue
 		}
 
-		// 如果需要创建新文件
+		// If need to create new file
 		if shouldAddFile {
 			if err := c.Container.GetService("file").(base_services.InterfaceFileService).Create(fileForNotice); err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("创建通知ID %d 的文件记录失败: %v", oldNotice.ID, err))
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to create file record for notice ID %d: %v", oldNotice.ID, err))
 				continue
 			}
 		}
 
-		// 如果需要上传文件
+		// If need to upload file
 		if shouldUpload {
-			// 准备上传表单数据
+			// Prepare upload form data
 			var b bytes.Buffer
 			w := multipart.NewWriter(&b)
 
-			// 按照前端的完全相同顺序添加表单字段
+			// Add form fields in the exact same order as frontend
 			formFields := []struct {
 				key      string
 				paramKey string
@@ -692,7 +720,7 @@ func (c *BuildingController) SyncNotice() {
 				{key: "signature", paramKey: "signature"},
 			}
 
-			// 添加表单字段
+			// Add form fields
 			for _, field := range formFields {
 				var fieldValue string
 				switch field.key {
@@ -705,86 +733,87 @@ func (c *BuildingController) SyncNotice() {
 						if val, ok := uploadParams[field.paramKey]; ok {
 							fieldValue = fmt.Sprintf("%v", val)
 						} else {
-							log.Printf("警告: 缺少字段 %s (参数名: %s)", field.key, field.paramKey)
+							log.Printf("Warning: missing field %s (param name: %s)", field.key, field.paramKey)
 							continue
 						}
 					}
 				}
 				if err := w.WriteField(field.key, fieldValue); err != nil {
-					failedNotices = append(failedNotices, fmt.Sprintf("写入通知ID %d 的表单字段 %s 失败: %v", oldNotice.ID, field.key, err))
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to write form field %s for notice ID %d: %v", field.key, oldNotice.ID, err))
 					continue
 				}
-				log.Printf("添加字段: %s = %s", field.key, fieldValue)
+				log.Printf("Added field: %s = %s", field.key, fieldValue)
 			}
 
-			// 最后添加文件数据
+			// Finally add file data
 			fw, err := w.CreateFormFile("file", objectKey)
 			if err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("创建通知ID %d 的文件表单失败: %v", oldNotice.ID, err))
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to create file form for notice ID %d: %v", oldNotice.ID, err))
 				continue
 			}
 			if _, err = io.Copy(fw, bytes.NewReader(fileContent)); err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("复制通知ID %d 的文件数据失败: %v", oldNotice.ID, err))
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to copy file data for notice ID %d: %v", oldNotice.ID, err))
 				continue
 			}
 			w.Close()
 
-			// 上传到OSS
+			// Upload to OSS
 			uploadReq, err := http.NewRequest("POST", uploadParams["host"].(string), &b)
 			if err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("创建通知ID %d 的上传请求失败: %v", oldNotice.ID, err))
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to create upload request for notice ID %d: %v", oldNotice.ID, err))
 				continue
 			}
 			uploadReq.Header.Set("Content-Type", w.FormDataContentType())
 
-			// 添加调试日志
-			log.Printf("上传URL: %s", uploadParams["host"].(string))
-			log.Printf("上传参数: %+v", uploadParams)
-			log.Printf("上传文件名: %s", objectKey)
+			// Add debug logs
+			log.Printf("Upload URL: %s", uploadParams["host"].(string))
+			log.Printf("Upload params: %+v", uploadParams)
+			log.Printf("Upload file name: %s", objectKey)
 			log.Printf("Content-Type: %s", w.FormDataContentType())
 
 			client := &http.Client{}
+
 			uploadResp, err := client.Do(uploadReq)
 			if err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("上传通知ID %d 的文件失败: %v", oldNotice.ID, err))
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to upload file for notice ID %d: %v", oldNotice.ID, err))
 				continue
 			}
 
-			// 读取响应
+			// Read response
 			respBody, _ := io.ReadAll(uploadResp.Body)
 			uploadResp.Body.Close()
 
 			if uploadResp.StatusCode != http.StatusOK {
-				failedNotices = append(failedNotices, fmt.Sprintf("通知ID %d 的文件上传失败，状态码: %d, 响应: %s", oldNotice.ID, uploadResp.StatusCode, string(respBody)))
-				// 删除已创建的文件记录
+				failedNotices = append(failedNotices, fmt.Sprintf("File upload failed for notice ID %d: status code %d, response: %s", oldNotice.ID, uploadResp.StatusCode, string(respBody)))
+				// Delete created file record if upload failed
 				if shouldAddFile {
 					if err := databases.DB_CONN.Delete(fileForNotice).Error; err != nil {
-						log.Printf("删除失败的文件记录失败: %v", err)
+						log.Printf("Failed to delete failed file record: %v", err)
 					}
 				}
 				continue
 			}
 
-			// 验证上传是否成功
-			log.Printf("文件上传响应: %s", string(respBody))
+			// Verify upload success
+			log.Printf("File upload response: %s", string(respBody))
 		}
 
-		// 确定通知类型
+		// Determine notice type
 		noticeType := field.NoticeTypeNormal
 		switch oldNotice.MessType {
-		case "urgent":
-			noticeType = field.NoticeTypeUrgent
-		case "normal":
+		case string(field.NoticeOldTypeCommon):
 			noticeType = field.NoticeTypeNormal
-		case "building":
+		case string(field.NoticeOldTypeIo):
 			noticeType = field.NoticeTypeBuilding
-		case "government":
+		case string(field.NoticeOldTypeUrgent):
+			noticeType = field.NoticeTypeUrgent
+		case string(field.NoticeOldTypeGovernment):
 			noticeType = field.NoticeTypeGovernment
 		default:
 			noticeType = field.NoticeTypeNormal
 		}
 
-		// 创建通知记录
+		// Create notice record
 		notice := &base_models.Notice{
 			Title:       oldNotice.MessTitle,
 			Description: oldNotice.MessTitle,
@@ -797,29 +826,29 @@ func (c *BuildingController) SyncNotice() {
 			FileType:    field.FileTypePdf,
 		}
 
-		// 创建通知并绑定到建筑物
+		// Create notice and bind to building
 		err = databases.DB_CONN.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Create(notice).Error; err != nil {
-				return fmt.Errorf("创建通知记录失败: %v", err)
+				return fmt.Errorf("failed to create notice record: %v", err)
 			}
 
 			if err := tx.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)", notice.ID, id).Error; err != nil {
-				return fmt.Errorf("绑定通知到建筑物失败: %v", err)
+				return fmt.Errorf("failed to bind notice to building: %v", err)
 			}
 
 			return nil
 		})
 		if err != nil {
-			failedNotices = append(failedNotices, fmt.Sprintf("处理通知ID %d 失败: %v", oldNotice.ID, err))
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to process notice ID %d: %v", oldNotice.ID, err))
 			continue
 		}
 
 		successCount++
 	}
 
-	// 返回同步结果
+	// Return sync results
 	c.Ctx.JSON(200, gin.H{
-		"message":        "同步完成",
+		"message":        "Sync completed",
 		"successCount":   successCount,
 		"hasSyncedCount": hasSyncedCount,
 		"failedNotices":  failedNotices,
