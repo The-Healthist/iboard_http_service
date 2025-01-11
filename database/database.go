@@ -45,6 +45,7 @@ func InitDB(host, user, password, port, dbname string) *gorm.DB {
 		&base_models.Advertisement{},
 		&base_models.Notice{},
 		&base_models.File{},
+		&base_models.Device{},
 	); err != nil {
 		log.Printf("Failed to auto migrate: %v\n", err)
 		return nil
@@ -65,6 +66,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&base_models.Advertisement{},
 		&base_models.Notice{},
 		&base_models.File{},
+		&base_models.Device{},
 	)
 
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -31,9 +30,6 @@ type InterfaceBuildingController interface {
 	Update()
 	Delete()
 	GetOne()
-	Login()
-	GetBuildingAdvertisements()
-	GetBuildingNotices()
 	SyncNotice()
 }
 
@@ -77,21 +73,6 @@ func HandleFuncBuilding(container *container.ServiceContainer, method string) gi
 			controller := NewBuildingController(ctx, container)
 			controller.GetOne()
 		}
-	case "login":
-		return func(ctx *gin.Context) {
-			controller := NewBuildingController(ctx, container)
-			controller.Login()
-		}
-	case "getBuildingAdvertisements":
-		return func(ctx *gin.Context) {
-			controller := NewBuildingController(ctx, container)
-			controller.GetBuildingAdvertisements()
-		}
-	case "getBuildingNotices":
-		return func(ctx *gin.Context) {
-			controller := NewBuildingController(ctx, container)
-			controller.GetBuildingNotices()
-		}
 	case "syncNotice":
 		return func(ctx *gin.Context) {
 			controller := NewBuildingController(ctx, container)
@@ -109,7 +90,6 @@ func (c *BuildingController) Create() {
 	var form struct {
 		Name     string `json:"name" binding:"required"`
 		IsmartID string `json:"ismartId" binding:"required"`
-		Password string `json:"password" binding:"required"`
 		Remark   string `json:"remark"`
 	}
 
@@ -124,7 +104,6 @@ func (c *BuildingController) Create() {
 	building := &base_models.Building{
 		Name:     form.Name,
 		IsmartID: form.IsmartID,
-		Password: form.Password,
 		Remark:   form.Remark,
 	}
 
@@ -190,7 +169,6 @@ func (c *BuildingController) Update() {
 		ID       uint   `json:"id" binding:"required"`
 		Name     string `json:"name"`
 		IsmartID string `json:"ismartId"`
-		Password string `json:"password"`
 		Remark   string `json:"remark"`
 	}
 
@@ -205,9 +183,6 @@ func (c *BuildingController) Update() {
 	}
 	if form.IsmartID != "" {
 		updates["ismart_id"] = form.IsmartID
-	}
-	if form.Password != "" {
-		updates["password"] = form.Password
 	}
 	if form.Remark != "" {
 		updates["remark"] = form.Remark
@@ -269,7 +244,7 @@ func (c *BuildingController) Delete() {
 	}
 
 	// convert map to slice
-	var fileIDs []uint
+	fileIDs := make([]uint, 0, len(fileIDMap))
 	for fileID := range fileIDMap {
 		fileIDs = append(fileIDs, fileID)
 	}
@@ -359,121 +334,6 @@ func (c *BuildingController) GetOne() {
 	})
 }
 
-func (c *BuildingController) Login() {
-	var form struct {
-		IsmartID string `json:"ismartId" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-
-	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "invalid form",
-		})
-		return
-	}
-
-	building, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetByCredentials(form.IsmartID, form.Password)
-	if err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "Invalid credentials",
-		})
-		return
-	}
-
-	// Generate JWT token
-	token, err := c.Container.GetService("jwt").(base_services.IJWTService).GenerateBuildingToken(building)
-	if err != nil {
-		c.Ctx.JSON(500, gin.H{
-			"error":   err.Error(),
-			"message": "failed to generate token",
-		})
-		return
-	}
-
-	c.Ctx.JSON(200, gin.H{
-		"message": "Login success",
-		"data": gin.H{
-			"id":       building.ID,
-			"name":     building.Name,
-			"ismartId": building.IsmartID,
-			"remark":   building.Remark,
-		},
-		"token": token,
-	})
-}
-
-func (c *BuildingController) GetBuildingAdvertisements() {
-	claims, exists := c.Ctx.Get("claims")
-	if !exists {
-		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	claimsMap, ok := claims.(map[string]interface{})
-	if !ok {
-		c.Ctx.JSON(500, gin.H{"error": "invalid claims format"})
-		return
-	}
-
-	buildingIdFloat, ok := claimsMap["buildingId"].(float64)
-	if !ok {
-		c.Ctx.JSON(500, gin.H{"error": "invalid building id format"})
-		return
-	}
-
-	buildingId := uint(buildingIdFloat)
-	advertisements, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetBuildingAdvertisements(buildingId)
-	if err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "Failed to get advertisements",
-		})
-		return
-	}
-
-	c.Ctx.JSON(200, gin.H{
-		"message": "Get advertisements success",
-		"data":    advertisements,
-	})
-}
-
-func (c *BuildingController) GetBuildingNotices() {
-	claims, exists := c.Ctx.Get("claims")
-	if !exists {
-		c.Ctx.JSON(401, gin.H{"error": "unauthorized"})
-		return
-	}
-
-	claimsMap, ok := claims.(map[string]interface{})
-	if !ok {
-		c.Ctx.JSON(500, gin.H{"error": "invalid claims format"})
-		return
-	}
-
-	buildingIdFloat, ok := claimsMap["buildingId"].(float64)
-	if !ok {
-		c.Ctx.JSON(500, gin.H{"error": "invalid building id format"})
-		return
-	}
-
-	buildingId := uint(buildingIdFloat)
-	notices, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetBuildingNotices(buildingId)
-	if err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "Failed to get notices",
-		})
-		return
-	}
-
-	c.Ctx.JSON(200, gin.H{
-		"message": "Get notices success",
-		"data":    notices,
-	})
-}
-
 func (c *BuildingController) SyncNotice() {
 	// get building id from url param
 	idStr := c.Ctx.Param("id")
@@ -491,6 +351,18 @@ func (c *BuildingController) SyncNotice() {
 	if err != nil {
 		c.Ctx.JSON(400, gin.H{
 			"error":   "Failed to get building information",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Get existing iSmart notices for this building
+	var existingNotices []base_models.Notice
+	if err := databases.DB_CONN.Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", id, true).
+		Preload("File").Find(&existingNotices).Error; err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   "Failed to get existing notices",
 			"message": err.Error(),
 		})
 		return
@@ -540,11 +412,96 @@ func (c *BuildingController) SyncNotice() {
 		return
 	}
 
-	// process each notice
+	// Create a map of MD5 hashes from old system notices
+	oldSystemMD5Map := make(map[string]bool)
 	var successCount int
 	var failedNotices []string
 	var hasSyncedCount int
+	var deleteCount int
 
+	// Process old system notices and build MD5 map
+	for _, oldNotice := range respBody {
+		// download pdf file
+		fileResp, err := http.Get(oldNotice.MessFile)
+		if err != nil {
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to download file for notice ID %d: %v", oldNotice.ID, err))
+			continue
+		}
+
+		// read file content
+		fileContent, err := io.ReadAll(fileResp.Body)
+		fileResp.Body.Close()
+		if err != nil {
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to read file content for notice ID %d: %v", oldNotice.ID, err))
+			continue
+		}
+
+		md5Hash := md5.Sum(fileContent)
+		md5Str := hex.EncodeToString(md5Hash[:])
+		oldSystemMD5Map[md5Str] = true
+	}
+
+	// Process existing notices that are no longer in old system
+	for _, existingNotice := range existingNotices {
+		if existingNotice.File == nil {
+			continue
+		}
+
+		if !oldSystemMD5Map[existingNotice.File.Md5] {
+			// Start transaction for deletion
+			tx := databases.DB_CONN.Begin()
+
+			// Unbind notice from building
+			if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ? AND building_id = ?", existingNotice.ID, id).Error; err != nil {
+				tx.Rollback()
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to unbind notice ID %d: %v", existingNotice.ID, err))
+				continue
+			}
+
+			// Check if notice is bound to other buildings
+			var buildingCount int64
+			if err := tx.Table("notice_buildings").Where("notice_id = ?", existingNotice.ID).Count(&buildingCount).Error; err != nil {
+				tx.Rollback()
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to check notice bindings for ID %d: %v", existingNotice.ID, err))
+				continue
+			}
+
+			if buildingCount == 0 {
+				// Delete notice if no other bindings exist
+				if err := tx.Delete(&existingNotice).Error; err != nil {
+					tx.Rollback()
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to delete notice ID %d: %v", existingNotice.ID, err))
+					continue
+				}
+
+				// Check if file is used by other notices
+				var fileCount int64
+				if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", existingNotice.FileID).Count(&fileCount).Error; err != nil {
+					tx.Rollback()
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to check file references for notice ID %d: %v", existingNotice.ID, err))
+					continue
+				}
+
+				if fileCount == 0 {
+					// Delete file if no other notices use it
+					if err := tx.Delete(&existingNotice.File).Error; err != nil {
+						tx.Rollback()
+						failedNotices = append(failedNotices, fmt.Sprintf("Failed to delete file for notice ID %d: %v", existingNotice.ID, err))
+						continue
+					}
+				}
+			}
+
+			if err := tx.Commit().Error; err != nil {
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to commit deletion for notice ID %d: %v", existingNotice.ID, err))
+				continue
+			}
+
+			deleteCount++
+		}
+	}
+
+	// Process notices from old system
 	for _, oldNotice := range respBody {
 		// download pdf file
 		fileResp, err := http.Get(oldNotice.MessFile)
@@ -598,18 +555,7 @@ func (c *BuildingController) SyncNotice() {
 			continue
 		}
 
-		// generate file name and get upload params
-		currentTime := time.Now()
-		dir := currentTime.Format("2006-01-02") + "/"
-		fileName := fmt.Sprintf("%s.pdf", uuid.New().String())
-		objectKey := dir + fileName
-		uploadParams, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsSync(objectKey)
-		if err != nil {
-			failedNotices = append(failedNotices, fmt.Sprintf("Failed to get upload params for notice ID %d: %v", oldNotice.ID, err))
-			continue
-		}
-
-		// check if md5 exists before create file record
+		// Check if file with same MD5 exists
 		var existingFile base_models.File
 		var shouldUpload bool = true
 		var shouldAddFile bool = true
@@ -617,67 +563,67 @@ func (c *BuildingController) SyncNotice() {
 
 		err = databases.DB_CONN.Where("md5 = ?", md5Str).First(&existingFile).Error
 		if err == nil {
-			// file exists, check if it is associated with notice
-			var notice base_models.Notice
-			var noticeExists bool
+			// File exists, check if it's associated with any notice
+			var existingNotice base_models.Notice
+			err := databases.DB_CONN.Where("file_id = ?", existingFile.ID).First(&existingNotice).Error
 
-			// check if file is associated with notice
-			err := databases.DB_CONN.Where("file_id = ?", existingFile.ID).First(&notice).Error
-			noticeExists = err == nil
-
-			if noticeExists {
-				// check if notice is associated with current building
+			if err == nil {
+				// Check if notice is bound to current building
 				var count int64
 				err = databases.DB_CONN.Table("notice_buildings").
-					Where("notice_id = ? AND building_id = ?", notice.ID, id).
+					Where("notice_id = ? AND building_id = ?", existingNotice.ID, id).
 					Count(&count).Error
+
 				if err == nil && count > 0 {
-					// notice is associated with current building, skip processing
+					// Notice already exists for this building
 					hasSyncedCount++
-					log.Printf("Notice ID %d has already been synced, skipping", oldNotice.ID)
 					continue
 				}
 
-				if err := databases.DB_CONN.Table("notice_buildings").
-					Where("notice_id = ?", notice.ID).
-					Count(&count).Error; err == nil && count > 0 {
-					// notice is associated with other building, need to create new file and notice
-					shouldUpload = true
-					shouldAddFile = true
-					fileForNotice = &base_models.File{
-						Path:         uploadParams["host"].(string) + "/" + objectKey,
-						Size:         int64(fileSize),
-						MimeType:     mimeType,
-						Oss:          "aws",
-						UploaderType: uploaderType,
-						UploaderID:   uploaderID,
-						Uploader:     uploaderEmail,
-						Md5:          md5Str,
-					}
-				} else {
-					// notice exists but not associated with any building, bind to current building only
-					shouldUpload = false
-					shouldAddFile = false
-					fileForNotice = &existingFile
+				// Check if notice is bound to other buildings
+				err = databases.DB_CONN.Table("notice_buildings").
+					Where("notice_id = ?", existingNotice.ID).
+					Count(&count).Error
 
-					// bind notice to current building directly
-					if err := databases.DB_CONN.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)", notice.ID, id).Error; err != nil {
-						failedNotices = append(failedNotices, fmt.Sprintf("Failed to bind notice ID %d to building: %v", oldNotice.ID, err))
-						continue
+				if err == nil {
+					if count > 0 {
+						// Notice exists and is bound to other buildings, create new notice
+						shouldUpload = false
+						shouldAddFile = false
+						fileForNotice = &existingFile
+					} else {
+						// Notice exists but not bound to any building, delete it and create new one
+						if err := databases.DB_CONN.Delete(&existingNotice).Error; err != nil {
+							failedNotices = append(failedNotices, fmt.Sprintf("Failed to delete old notice for ID %d: %v", oldNotice.ID, err))
+							continue
+						}
+						shouldUpload = false
+						shouldAddFile = false
+						fileForNotice = &existingFile
 					}
-					successCount++
-					continue
 				}
 			} else {
-				// file exists but not associated with notice, use existing file to create new notice
+				// File exists but no notice associated
 				shouldUpload = false
 				shouldAddFile = false
 				fileForNotice = &existingFile
 			}
 		} else if err == gorm.ErrRecordNotFound {
-			// file not exists, need to create all
+			// File doesn't exist, create new one
 			shouldUpload = true
 			shouldAddFile = true
+
+			// generate file name and get upload params
+			currentTime := time.Now()
+			dir := currentTime.Format("2006-01-02") + "/"
+			fileName := fmt.Sprintf("%s.pdf", uuid.New().String())
+			objectKey := dir + fileName
+			uploadParams, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsSync(objectKey)
+			if err != nil {
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to get upload params for notice ID %d: %v", oldNotice.ID, err))
+				continue
+			}
+
 			fileForNotice = &base_models.File{
 				Path:         uploadParams["host"].(string) + "/" + objectKey,
 				Size:         int64(fileSize),
@@ -688,114 +634,86 @@ func (c *BuildingController) SyncNotice() {
 				Uploader:     uploaderEmail,
 				Md5:          md5Str,
 			}
-		} else {
-			failedNotices = append(failedNotices, fmt.Sprintf("Failed to check MD5 for notice ID %d: %v", oldNotice.ID, err))
-			continue
+
+			if shouldUpload {
+				// Upload file to OSS
+				var b bytes.Buffer
+				w := multipart.NewWriter(&b)
+
+				formFields := []struct {
+					key      string
+					paramKey string
+				}{
+					{key: "key", paramKey: "dir"},
+					{key: "policy", paramKey: "policy"},
+					{key: "OSSAccessKeyId", paramKey: "accessid"},
+					{key: "success_action_status", paramKey: ""},
+					{key: "callback", paramKey: "callback"},
+					{key: "signature", paramKey: "signature"},
+				}
+
+				for _, field := range formFields {
+					var fieldValue string
+					switch field.key {
+					case "key":
+						fieldValue = objectKey
+					case "success_action_status":
+						fieldValue = "200"
+					default:
+						if field.paramKey != "" {
+							if val, ok := uploadParams[field.paramKey]; ok {
+								fieldValue = fmt.Sprintf("%v", val)
+							} else {
+								continue
+							}
+						}
+					}
+					if err := w.WriteField(field.key, fieldValue); err != nil {
+						failedNotices = append(failedNotices, fmt.Sprintf("Failed to write form field %s for notice ID %d: %v", field.key, oldNotice.ID, err))
+						continue
+					}
+				}
+
+				fw, err := w.CreateFormFile("file", objectKey)
+				if err != nil {
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to create file form for notice ID %d: %v", oldNotice.ID, err))
+					continue
+				}
+				if _, err = io.Copy(fw, bytes.NewReader(fileContent)); err != nil {
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to copy file data for notice ID %d: %v", oldNotice.ID, err))
+					continue
+				}
+				w.Close()
+
+				uploadReq, err := http.NewRequest("POST", uploadParams["host"].(string), &b)
+				if err != nil {
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to create upload request for notice ID %d: %v", oldNotice.ID, err))
+					continue
+				}
+				uploadReq.Header.Set("Content-Type", w.FormDataContentType())
+
+				client := &http.Client{}
+				uploadResp, err := client.Do(uploadReq)
+				if err != nil {
+					failedNotices = append(failedNotices, fmt.Sprintf("Failed to upload file for notice ID %d: %v", oldNotice.ID, err))
+					continue
+				}
+
+				respBody, _ := io.ReadAll(uploadResp.Body)
+				uploadResp.Body.Close()
+
+				if uploadResp.StatusCode != http.StatusOK {
+					failedNotices = append(failedNotices, fmt.Sprintf("File upload failed for notice ID %d: status code %d, response: %s", oldNotice.ID, uploadResp.StatusCode, string(respBody)))
+					continue
+				}
+			}
 		}
 
-		// If need to create new file
 		if shouldAddFile {
 			if err := c.Container.GetService("file").(base_services.InterfaceFileService).Create(fileForNotice); err != nil {
 				failedNotices = append(failedNotices, fmt.Sprintf("Failed to create file record for notice ID %d: %v", oldNotice.ID, err))
 				continue
 			}
-		}
-
-		// If need to upload file
-		if shouldUpload {
-			// Prepare upload form data
-			var b bytes.Buffer
-			w := multipart.NewWriter(&b)
-
-			// Add form fields in the exact same order as frontend
-			formFields := []struct {
-				key      string
-				paramKey string
-			}{
-				{key: "key", paramKey: "dir"},
-				{key: "policy", paramKey: "policy"},
-				{key: "OSSAccessKeyId", paramKey: "accessid"},
-				{key: "success_action_status", paramKey: ""},
-				{key: "callback", paramKey: "callback"},
-				{key: "signature", paramKey: "signature"},
-			}
-
-			// Add form fields
-			for _, field := range formFields {
-				var fieldValue string
-				switch field.key {
-				case "key":
-					fieldValue = objectKey
-				case "success_action_status":
-					fieldValue = "200"
-				default:
-					if field.paramKey != "" {
-						if val, ok := uploadParams[field.paramKey]; ok {
-							fieldValue = fmt.Sprintf("%v", val)
-						} else {
-							log.Printf("Warning: missing field %s (param name: %s)", field.key, field.paramKey)
-							continue
-						}
-					}
-				}
-				if err := w.WriteField(field.key, fieldValue); err != nil {
-					failedNotices = append(failedNotices, fmt.Sprintf("Failed to write form field %s for notice ID %d: %v", field.key, oldNotice.ID, err))
-					continue
-				}
-				log.Printf("Added field: %s = %s", field.key, fieldValue)
-			}
-
-			// Finally add file data
-			fw, err := w.CreateFormFile("file", objectKey)
-			if err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("Failed to create file form for notice ID %d: %v", oldNotice.ID, err))
-				continue
-			}
-			if _, err = io.Copy(fw, bytes.NewReader(fileContent)); err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("Failed to copy file data for notice ID %d: %v", oldNotice.ID, err))
-				continue
-			}
-			w.Close()
-
-			// Upload to OSS
-			uploadReq, err := http.NewRequest("POST", uploadParams["host"].(string), &b)
-			if err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("Failed to create upload request for notice ID %d: %v", oldNotice.ID, err))
-				continue
-			}
-			uploadReq.Header.Set("Content-Type", w.FormDataContentType())
-
-			// Add debug logs
-			log.Printf("Upload URL: %s", uploadParams["host"].(string))
-			log.Printf("Upload params: %+v", uploadParams)
-			log.Printf("Upload file name: %s", objectKey)
-			log.Printf("Content-Type: %s", w.FormDataContentType())
-
-			client := &http.Client{}
-
-			uploadResp, err := client.Do(uploadReq)
-			if err != nil {
-				failedNotices = append(failedNotices, fmt.Sprintf("Failed to upload file for notice ID %d: %v", oldNotice.ID, err))
-				continue
-			}
-
-			// Read response
-			respBody, _ := io.ReadAll(uploadResp.Body)
-			uploadResp.Body.Close()
-
-			if uploadResp.StatusCode != http.StatusOK {
-				failedNotices = append(failedNotices, fmt.Sprintf("File upload failed for notice ID %d: status code %d, response: %s", oldNotice.ID, uploadResp.StatusCode, string(respBody)))
-				// Delete created file record if upload failed
-				if shouldAddFile {
-					if err := databases.DB_CONN.Delete(fileForNotice).Error; err != nil {
-						log.Printf("Failed to delete failed file record: %v", err)
-					}
-				}
-				continue
-			}
-
-			// Verify upload success
-			log.Printf("File upload response: %s", string(respBody))
 		}
 
 		// Determine notice type
@@ -809,21 +727,20 @@ func (c *BuildingController) SyncNotice() {
 			noticeType = field.NoticeTypeUrgent
 		case string(field.NoticeOldTypeGovernment):
 			noticeType = field.NoticeTypeGovernment
-		default:
-			noticeType = field.NoticeTypeNormal
 		}
 
-		// Create notice record
+		// Create new notice
 		notice := &base_models.Notice{
-			Title:       oldNotice.MessTitle,
-			Description: oldNotice.MessTitle,
-			Type:        noticeType,
-			Status:      field.Status("active"),
-			StartTime:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
-			EndTime:     time.Date(2100, 2, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
-			IsPublic:    true,
-			FileID:      &fileForNotice.ID,
-			FileType:    field.FileTypePdf,
+			Title:          oldNotice.MessTitle,
+			Description:    oldNotice.MessTitle,
+			Type:           noticeType,
+			Status:         field.Status("active"),
+			StartTime:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
+			EndTime:        time.Date(2100, 2, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
+			IsPublic:       true,
+			IsIsmartNotice: true, // Set this flag for notices from old system
+			FileID:         &fileForNotice.ID,
+			FileType:       field.FileTypePdf,
 		}
 
 		// Create notice and bind to building
@@ -851,6 +768,7 @@ func (c *BuildingController) SyncNotice() {
 		"message":        "Sync completed",
 		"successCount":   successCount,
 		"hasSyncedCount": hasSyncedCount,
+		"deleteCount":    deleteCount,
 		"failedNotices":  failedNotices,
 		"totalProcessed": len(respBody),
 	})

@@ -28,6 +28,7 @@ type ServiceContainer struct {
 	emailService         base_services.IEmailService
 	superAdminService    base_services.InterfaceSuperAdminService
 	uploadService        base_services.IUploadService
+	deviceService        base_services.InterfaceDeviceService
 
 	// Building Admin Services
 	buildingAdminAdvertisementService building_admin_services.InterfaceBuildingAdminAdvertisementService
@@ -40,6 +41,7 @@ type ServiceContainer struct {
 	buildingAdminBuildingService relationship_service.InterfaceBuildingAdminBuildingService
 	fileAdvertisementService     relationship_service.InterfaceFileAdvertisementService
 	fileNoticeService            relationship_service.InterfaceFileNoticeService
+	deviceBuildingService        relationship_service.InterfaceDeviceBuildingService
 
 	mu sync.RWMutex
 }
@@ -50,7 +52,7 @@ func NewServiceContainer(db *gorm.DB) *ServiceContainer {
 		panic("database connection is nil")
 	}
 
-	// 验证 Redis 连接
+	// Verify Redis connection
 	if databases.REDIS_CONN == nil {
 		log.Println("Redis connection not initialized, attempting to initialize...")
 		if err := databases.InitRedis(); err != nil {
@@ -58,7 +60,7 @@ func NewServiceContainer(db *gorm.DB) *ServiceContainer {
 		}
 	}
 
-	// 测试 Redis 连接
+	// Test Redis connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -79,7 +81,7 @@ func (c *ServiceContainer) initializeServices() {
 		panic("database connection is nil")
 	}
 
-	// 确保 Redis 已经初始化
+	// Ensure Redis is initialized
 	if databases.REDIS_CONN == nil {
 		if err := databases.InitRedis(); err != nil {
 			panic(fmt.Sprintf("failed to initialize redis: %v", err))
@@ -97,8 +99,9 @@ func (c *ServiceContainer) initializeServices() {
 	c.noticeService = base_services.NewNoticeService(c.db)
 	c.buildingAdminService = base_services.NewBuildingAdminService(c.db)
 	c.superAdminService = base_services.NewSuperAdminService(c.db)
+	c.deviceService = base_services.NewDeviceService(c.db)
 
-	// 使用全局 Redis 连接
+	// Use global Redis connection
 	c.uploadService = base_services.NewUploadService(c.db, databases.REDIS_CONN)
 
 	// Initialize Relationship Services
@@ -107,6 +110,7 @@ func (c *ServiceContainer) initializeServices() {
 	c.noticeBuildingService = relationship_service.NewNoticeBuildingService(c.db)
 	c.fileAdvertisementService = relationship_service.NewFileAdvertisementService(c.db)
 	c.fileNoticeService = relationship_service.NewFileNoticeService(c.db)
+	c.deviceBuildingService = relationship_service.NewDeviceBuildingService(c.db)
 
 	// Initialize Building Admin Services
 	c.buildingAdminAdvertisementService = building_admin_services.NewBuildingAdminAdvertisementService(
@@ -147,6 +151,8 @@ func (c *ServiceContainer) GetService(name string) interface{} {
 		return c.emailService
 	case "upload":
 		return c.uploadService
+	case "device":
+		return c.deviceService
 
 	// Building admin services
 	case "buildingAdminAdvertisement":
@@ -167,6 +173,8 @@ func (c *ServiceContainer) GetService(name string) interface{} {
 		return c.fileAdvertisementService
 	case "fileNotice":
 		return c.fileNoticeService
+	case "deviceBuilding":
+		return c.deviceBuildingService
 	default:
 		return nil
 	}

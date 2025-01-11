@@ -16,7 +16,7 @@ type InterfaceBuildingService interface {
 	Update(id uint, updates map[string]interface{}) error
 	Delete(ids []uint) error
 	GetByID(id uint) (*base_models.Building, error)
-	GetByCredentials(ismartID string, password string) (*base_models.Building, error)
+	GetByIsmartID(ismartID string) (*base_models.Building, error)
 	GetBuildingAdvertisements(buildingId uint) ([]base_models.Advertisement, error)
 	GetBuildingNotices(buildingId uint) ([]base_models.Notice, error)
 }
@@ -152,19 +152,18 @@ func (s *BuildingService) GetByID(id uint) (*base_models.Building, error) {
 		}
 	}
 
-	building.Password = ""
 	return &building, nil
 }
 
-func (s *BuildingService) GetByCredentials(ismartID string, password string) (*base_models.Building, error) {
+func (s *BuildingService) GetByIsmartID(ismartID string) (*base_models.Building, error) {
 	var building base_models.Building
-	if err := s.db.Where("ismart_id = ? AND password = ?", ismartID, password).
+	if err := s.db.Where("ismart_id = ?", ismartID).
 		Preload("Notices").
 		Preload("Notices.File").
 		Preload("Advertisements", "status = ?", "active").
 		Preload("Advertisements.File").
 		First(&building).Error; err != nil {
-		return nil, fmt.Errorf("invalid credentials: %v", err)
+		return nil, fmt.Errorf("invalid ismartId: %v", err)
 	}
 
 	if building.Notices == nil {
@@ -195,8 +194,6 @@ func (s *BuildingService) GetByCredentials(ismartID string, password string) (*b
 			}
 		}
 	}
-
-	building.Password = ""
 	return &building, nil
 }
 

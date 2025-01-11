@@ -19,7 +19,7 @@ type IJWTService interface {
 	GenerateToken(claims jwt.MapClaims) (string, error)
 	ValidateToken(token string) (*jwt.Token, error)
 	GenerateBuildingAdminToken(admin *base_models.BuildingAdmin) (string, error)
-	GenerateBuildingToken(building *base_models.Building) (string, error)
+	GenerateDeviceToken(device *base_models.Device) (string, error)
 	GenerateSuperAdminToken(admin *base_models.SuperAdmin) (string, error)
 }
 
@@ -70,11 +70,11 @@ func (s *JWTService) GenerateBuildingAdminToken(admin *base_models.BuildingAdmin
 	return s.GenerateToken(claims)
 }
 
-func (s *JWTService) GenerateBuildingToken(building *base_models.Building) (string, error) {
+func (s *JWTService) GenerateDeviceToken(device *base_models.Device) (string, error) {
 	claims := jwt.MapClaims{
-		"buildingId": building.ID,
-		"ismartId":   building.IsmartID,
-		"isBuilding": true,
+		"deviceId":   device.DeviceID,
+		"buildingId": device.BuildingID,
+		"isDevice":   true,
 		"exp":        time.Now().Add(time.Hour * 24).Unix(),
 	}
 	return s.GenerateToken(claims)

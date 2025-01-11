@@ -76,20 +76,23 @@ func HandleFuncAdvertisement(container *container.ServiceContainer, method strin
 	}
 }
 
+type CreateAdvertisementRequest struct {
+	Title       string                     `json:"title" binding:"required"`
+	Description string                     `json:"description"`
+	Type        field.AdvertisementType    `json:"type" binding:"required"`
+	Status      field.Status               `json:"status" binding:"required"`
+	Duration    int                        `json:"duration"`
+	Priority    int                        `json:"priority"`
+	StartTime   *time.Time                 `json:"startTime" binding:"required"`
+	EndTime     *time.Time                 `json:"endTime" binding:"required"`
+	Display     field.AdvertisementDisplay `json:"display" binding:"required"`
+	IsPublic    bool                       `json:"isPublic"`
+	Path        string                     `json:"path" binding:"required"`
+}
+
 // Create creates a new advertisement
 func (c *AdvertisementController) Create() {
-	var form struct {
-		Title       string                     `json:"title" binding:"required"`
-		Description string                     `json:"description"`
-		Type        field.AdvertisementType    `json:"type"`
-		Status      field.Status               `json:"status"`
-		Duration    int                        `json:"duration"`
-		StartTime   *time.Time                 `json:"startTime"`
-		EndTime     *time.Time                 `json:"endTime"`
-		Display     field.AdvertisementDisplay `json:"display"`
-		IsPublic    bool                       `json:"isPublic"`
-		Path        string                     `json:"path"`
-	}
+	var form CreateAdvertisementRequest
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
 		c.Ctx.JSON(400, gin.H{
@@ -115,20 +118,11 @@ func (c *AdvertisementController) Create() {
 		status = form.Status
 	}
 
-	// Start transaction
-	tx := databases.DB_CONN.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
 	// If path is provided, find the corresponding file
 	var fileID *uint
 	if form.Path != "" {
 		var file base_models.File
-		if err := tx.Where("path = ?", form.Path).First(&file).Error; err != nil {
-			tx.Rollback()
+		if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
 			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "file not found",
@@ -144,6 +138,7 @@ func (c *AdvertisementController) Create() {
 		Type:        form.Type,
 		Status:      status,
 		Duration:    form.Duration,
+		Priority:    form.Priority,
 		StartTime:   startTime,
 		EndTime:     endTime,
 		Display:     form.Display,
@@ -152,7 +147,6 @@ func (c *AdvertisementController) Create() {
 	}
 
 	if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Create(advertisement); err != nil {
-		tx.Rollback()
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create advertisement failed",
@@ -161,27 +155,13 @@ func (c *AdvertisementController) Create() {
 	}
 
 	// Reload advertisement to get associated file information
-	if err := tx.Preload("File").First(advertisement, advertisement.ID).Error; err != nil {
-		tx.Rollback()
+	if err := databases.DB_CONN.Preload("File").First(advertisement, advertisement.ID).Error; err != nil {
 		c.Ctx.JSON(200, gin.H{
 			"message": "create advertisement success, but failed to load file info",
 			"data":    advertisement,
 		})
 		return
 	}
-
-	if err := tx.Commit().Error; err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "failed to commit transaction",
-		})
-		return
-	}
-
-	c.Ctx.JSON(200, gin.H{
-		"message": "create advertisement success",
-		"data":    advertisement,
-	})
 }
 
 // CreateMany creates multiple advertisements
@@ -189,14 +169,15 @@ func (c *AdvertisementController) CreateMany() {
 	var forms []struct {
 		Title       string                     `json:"title" binding:"required"`
 		Description string                     `json:"description"`
-		Type        field.AdvertisementType    `json:"type"`
-		Status      field.Status               `json:"status"`
+		Type        field.AdvertisementType    `json:"type" binding:"required"`
+		Status      field.Status               `json:"status" binding:"required"`
 		Duration    int                        `json:"duration"`
-		StartTime   *time.Time                 `json:"startTime"`
-		EndTime     *time.Time                 `json:"endTime"`
-		Display     field.AdvertisementDisplay `json:"display"`
+		Priority    int                        `json:"priority" binding:"required"`
+		StartTime   *time.Time                 `json:"startTime" binding:"required"`
+		EndTime     *time.Time                 `json:"endTime" binding:"required"`
+		Display     field.AdvertisementDisplay `json:"display" binding:"required"`
 		IsPublic    bool                       `json:"isPublic"`
-		FileID      *uint                      `json:"fileId"`
+		Path        string                     `json:"path" binding:"required"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&forms); err != nil {
@@ -209,32 +190,38 @@ func (c *AdvertisementController) CreateMany() {
 
 	var advertisements []*base_models.Advertisement
 	for _, form := range forms {
+		// If path is provided, find the corresponding file
+		var fileID *uint
+		if form.Path != "" {
+			var file base_models.File
+			if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
+				c.Ctx.JSON(400, gin.H{
+					"error":   err.Error(),
+					"message": "file not found",
+				})
+				return
+			}
+			fileID = &file.ID
+		}
+
 		advertisement := &base_models.Advertisement{
 			Title:       form.Title,
 			Description: form.Description,
 			Type:        form.Type,
 			Status:      form.Status,
 			Duration:    form.Duration,
+			Priority:    form.Priority,
 			StartTime:   *form.StartTime,
 			EndTime:     *form.EndTime,
 			Display:     form.Display,
-			FileID:      form.FileID,
 			IsPublic:    form.IsPublic,
+			FileID:      fileID,
 		}
 		advertisements = append(advertisements, advertisement)
 	}
 
-	// Start transaction
-	tx := databases.DB_CONN.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
 	for _, advertisement := range advertisements {
 		if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Create(advertisement); err != nil {
-			tx.Rollback()
 			c.Ctx.JSON(400, gin.H{
 				"error":         err.Error(),
 				"message":       "create advertisement failed",
@@ -242,14 +229,6 @@ func (c *AdvertisementController) CreateMany() {
 			})
 			return
 		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "failed to commit transaction",
-		})
-		return
 	}
 
 	c.Ctx.JSON(200, gin.H{
@@ -311,6 +290,8 @@ func (c *AdvertisementController) Update() {
 		Description string                     `json:"description"`
 		Type        field.AdvertisementType    `json:"type"`
 		Status      field.Status               `json:"status"`
+		Duration    *int                       `json:"duration"`
+		Priority    *int                       `json:"priority"`
 		StartTime   *time.Time                 `json:"startTime"`
 		EndTime     *time.Time                 `json:"endTime"`
 		Display     field.AdvertisementDisplay `json:"display"`
@@ -322,14 +303,6 @@ func (c *AdvertisementController) Update() {
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Start transaction
-	tx := databases.DB_CONN.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
 
 	updates := map[string]interface{}{}
 	if form.Title != "" {
@@ -343,6 +316,12 @@ func (c *AdvertisementController) Update() {
 	}
 	if form.Status != "" {
 		updates["status"] = form.Status
+	}
+	if form.Duration != nil {
+		updates["duration"] = *form.Duration
+	}
+	if form.Priority != nil {
+		updates["priority"] = *form.Priority
 	}
 	if form.StartTime != nil {
 		updates["start_time"] = form.StartTime
@@ -359,6 +338,15 @@ func (c *AdvertisementController) Update() {
 
 	// If new path is provided
 	if form.Path != "" {
+		// Start transaction
+		tx := databases.DB_CONN.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// Find new file
 		var newFile base_models.File
 		if err := tx.Where("path = ?", form.Path).First(&newFile).Error; err != nil {
 			tx.Rollback()
@@ -370,23 +358,18 @@ func (c *AdvertisementController) Update() {
 		}
 
 		updates["file_id"] = newFile.ID
+		if err := tx.Commit().Error; err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   "Failed to update file",
+				"message": err.Error(),
+			})
+			return
+		}
 	}
 
 	advertisement, err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Update(form.ID, updates)
 	if err != nil {
-		tx.Rollback()
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "update advertisement failed",
-		})
-		return
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "failed to commit transaction",
-		})
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 

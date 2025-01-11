@@ -74,18 +74,22 @@ func HandleFuncNotice(container *container.ServiceContainer, method string) gin.
 	}
 }
 
+type CreateNoticeRequest struct {
+	Title          string           `json:"title" binding:"required"`
+	Description    string           `json:"description"`
+	Type           field.NoticeType `json:"type" binding:"required"`
+	Status         field.Status     `json:"status" binding:"required"`
+	StartTime      *time.Time       `json:"startTime" binding:"required"`
+	EndTime        *time.Time       `json:"endTime" binding:"required"`
+	IsPublic       bool             `json:"isPublic"`
+	IsIsmartNotice bool             `json:"isIsmartNotice"`
+	Priority       int              `json:"priority"`
+	Path           string           `json:"path" binding:"required"`
+	FileType       field.FileType   `json:"fileType"`
+}
+
 func (c *NoticeController) Create() {
-	var form struct {
-		Title       string           `json:"title" binding:"required"`
-		Description string           `json:"description"`
-		Type        field.NoticeType `json:"type" binding:"required"`
-		Status      field.Status     `json:"status" binding:"required"`
-		StartTime   *time.Time       `json:"startTime" binding:"required"`
-		EndTime     *time.Time       `json:"endTime" binding:"required"`
-		IsPublic    bool             `json:"isPublic"`
-		Path        string           `json:"path" binding:"required"`
-		FileType    field.FileType   `json:"fileType"`
-	}
+	var form CreateNoticeRequest
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
 		c.Ctx.JSON(400, gin.H{
@@ -111,7 +115,7 @@ func (c *NoticeController) Create() {
 		status = form.Status
 	}
 
-	// 如果提供了 path，查找对应的文件
+	// If path is provided, find the corresponding file
 	var fileID *uint
 	if form.Path != "" {
 		var file base_models.File
@@ -126,15 +130,17 @@ func (c *NoticeController) Create() {
 	}
 
 	notice := &base_models.Notice{
-		Title:       form.Title,
-		Description: form.Description,
-		Type:        form.Type,
-		Status:      status,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		IsPublic:    form.IsPublic,
-		FileID:      fileID,
-		FileType:    form.FileType,
+		Title:          form.Title,
+		Description:    form.Description,
+		Type:           form.Type,
+		Status:         status,
+		StartTime:      startTime,
+		EndTime:        endTime,
+		IsPublic:       form.IsPublic,
+		IsIsmartNotice: form.IsIsmartNotice,
+		Priority:       form.Priority,
+		FileID:         fileID,
+		FileType:       form.FileType,
 	}
 
 	if err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).Create(notice); err != nil {
@@ -162,16 +168,18 @@ func (c *NoticeController) Create() {
 
 func (c *NoticeController) CreateMany() {
 	var forms []struct {
-		Title       string           `json:"title" binding:"required"`
-		Description string           `json:"description"`
-		Type        field.NoticeType `json:"type" binding:"required"`
-		Status      field.Status     `json:"status" binding:"required"`
-		StartTime   *time.Time       `json:"startTime" binding:"required"`
-		EndTime     *time.Time       `json:"endTime" binding:"required"`
-		IsPublic    bool             `json:"isPublic" binding:"required"`
-		Path        string           `json:"path" binding:"required"`
-		FileType    field.FileType   `json:"fileType"`
-		Duration    int              `json:"duration" binding:"required"`
+		Title          string           `json:"title" binding:"required"`
+		Description    string           `json:"description"`
+		Type           field.NoticeType `json:"type" binding:"required"`
+		Status         field.Status     `json:"status" binding:"required"`
+		StartTime      *time.Time       `json:"startTime" binding:"required"`
+		EndTime        *time.Time       `json:"endTime" binding:"required"`
+		IsPublic       bool             `json:"isPublic" binding:"required"`
+		IsIsmartNotice bool             `json:"isIsmartNotice"`
+		Priority       int              `json:"priority" binding:"required"`
+		Path           string           `json:"path" binding:"required"`
+		FileType       field.FileType   `json:"fileType"`
+		Duration       int              `json:"duration" binding:"required"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&forms); err != nil {
@@ -185,13 +193,15 @@ func (c *NoticeController) CreateMany() {
 	var notices []*base_models.Notice
 	for _, form := range forms {
 		notice := &base_models.Notice{
-			Title:       form.Title,
-			Description: form.Description,
-			Type:        form.Type,
-			Status:      form.Status,
-			StartTime:   *form.StartTime,
-			EndTime:     *form.EndTime,
-			IsPublic:    form.IsPublic,
+			Title:          form.Title,
+			Description:    form.Description,
+			Type:           form.Type,
+			Status:         form.Status,
+			StartTime:      *form.StartTime,
+			EndTime:        *form.EndTime,
+			IsPublic:       form.IsPublic,
+			IsIsmartNotice: form.IsIsmartNotice,
+			Priority:       form.Priority,
 		}
 		notices = append(notices, notice)
 	}
@@ -259,16 +269,18 @@ func (c *NoticeController) Get() {
 
 func (c *NoticeController) Update() {
 	var form struct {
-		ID          uint             `json:"id" binding:"required"`
-		Title       string           `json:"title"`
-		Description string           `json:"description"`
-		Type        field.NoticeType `json:"type"`
-		Status      field.Status     `json:"status"`
-		StartTime   *time.Time       `json:"startTime"`
-		EndTime     *time.Time       `json:"endTime"`
-		IsPublic    *bool            `json:"isPublic"`
-		Path        string           `json:"path"`
-		FileType    field.FileType   `json:"fileType"`
+		ID             uint             `json:"id" binding:"required"`
+		Title          string           `json:"title"`
+		Description    string           `json:"description"`
+		Type           field.NoticeType `json:"type"`
+		Status         field.Status     `json:"status"`
+		StartTime      *time.Time       `json:"startTime"`
+		EndTime        *time.Time       `json:"endTime"`
+		IsPublic       *bool            `json:"isPublic"`
+		IsIsmartNotice *bool            `json:"isIsmartNotice"`
+		Priority       *int             `json:"priority"`
+		Path           string           `json:"path"`
+		FileType       field.FileType   `json:"fileType"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {

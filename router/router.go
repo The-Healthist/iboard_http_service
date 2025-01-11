@@ -19,7 +19,7 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 
 	// Public routes
 	r.POST("/api/admin/login", http_base_controller.HandleFuncSuperAdmin(serviceContainer, "login"))
-	r.POST("/api/admin/building/login", http_base_controller.HandleFuncBuilding(serviceContainer, "login"))
+	r.POST("/api/device/login", http_base_controller.HandleFuncDevice(serviceContainer, "login"))
 	r.POST("/api/building_admin/login", http_building_admin_controller.HandleFuncBuildingAdminAuth(serviceContainer, "login"))
 
 	// Upload routes
@@ -109,6 +109,20 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		adminGroup.POST("/file_advertisement/unbind", http_relationship_controller.HandleFuncFileAdvertisement(serviceContainer, "unbindFile"))
 		adminGroup.GET("/file_advertisement/advertisement", http_relationship_controller.HandleFuncFileAdvertisement(serviceContainer, "getAdvertisementByFile"))
 		adminGroup.GET("/file_advertisement/file", http_relationship_controller.HandleFuncFileAdvertisement(serviceContainer, "getFileByAdvertisement"))
+
+		// Device routes
+		adminGroup.POST("/device", http_base_controller.HandleFuncDevice(serviceContainer, "create"))
+		adminGroup.POST("/devices", http_base_controller.HandleFuncDevice(serviceContainer, "createMany"))
+		adminGroup.GET("/device", http_base_controller.HandleFuncDevice(serviceContainer, "get"))
+		adminGroup.PUT("/device", http_base_controller.HandleFuncDevice(serviceContainer, "update"))
+		adminGroup.DELETE("/device", http_base_controller.HandleFuncDevice(serviceContainer, "delete"))
+		adminGroup.GET("/device/:id", http_base_controller.HandleFuncDevice(serviceContainer, "getOne"))
+
+		// Device-Building relationship routes
+		adminGroup.POST("/device_building/bind", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "bindDevice"))
+		adminGroup.POST("/device_building/unbind", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "unbindDevice"))
+		adminGroup.GET("/device_building/devices", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "getDevicesByBuilding"))
+		adminGroup.GET("/device_building/building", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "getBuildingByDevice"))
 	}
 
 	// Building admin routes (requires building admin JWT)
@@ -139,12 +153,13 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		buildingAdminGroup.POST("/notice/upload/params", http_building_admin_controller.HandleFuncBuildingAdminNotice(serviceContainer, "getUploadParams"))
 	}
 
-	// Building client routes (requires building JWT)
-	buildingClientGroup := r.Group("/api/admin/building/client")
-	buildingClientGroup.Use(middlewares.AuthorizeJWTBuilding())
+	// Device client routes (requires device JWT)
+	deviceClientGroup := r.Group("/api/device/client")
+	deviceClientGroup.Use(middlewares.AuthorizeJWTDevice())
 	{
-		buildingClientGroup.GET("/advertisements", http_base_controller.HandleFuncBuilding(serviceContainer, "getBuildingAdvertisements"))
-		buildingClientGroup.GET("/notices", http_base_controller.HandleFuncBuilding(serviceContainer, "getBuildingNotices"))
+		deviceClientGroup.GET("/advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getDeviceAdvertisements"))
+		deviceClientGroup.GET("/notices", http_base_controller.HandleFuncDevice(serviceContainer, "getDeviceNotices"))
+		deviceClientGroup.POST("/health_test", http_base_controller.HandleFuncDevice(serviceContainer, "healthTest"))
 	}
 
 	// Notice-Building relationship routes

@@ -14,6 +14,7 @@ type Advertisement struct {
 	Type        field.AdvertisementType    `json:"type"           gorm:"size:50"` // video, image
 	Status      field.Status               `json:"status"         gorm:"size:50"` // pending, active, inactive
 	Duration    int                        `json:"duration"`
+	Priority    int                        `json:"priority"       gorm:"default:0"` //0 - 100, 100 is the highest priority (default 0)
 	StartTime   time.Time                  `json:"startTime"      gorm:"type:datetime"`
 	EndTime     time.Time                  `json:"endTime"        gorm:"type:datetime"`
 	Display     field.AdvertisementDisplay `json:"display"        gorm:"size:50"` // full, top, topfull

@@ -16,10 +16,6 @@ WORKDIR /app
 COPY --from=build-stage /app/main /app/
 COPY --from=build-stage /app/.env /app/
 
-# 添加健康检查
-HEALTHCHECK --interval=30s --timeout=3s \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:10031/health || exit 1
-
 EXPOSE 10031
 
 ENTRYPOINT ["/app/main"]

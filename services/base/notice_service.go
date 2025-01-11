@@ -64,7 +64,7 @@ func (s *NoticeService) Get(query map[string]interface{}, paginate map[string]in
 		db = db.Order("created_at ASC")
 	}
 
-	if err := db.Select("id, created_at, updated_at, deleted_at, title, description, type, status, start_time, end_time, file_id, file_type, is_public").
+	if err := db.Select("notices.*, notices.is_ismart_notice as is_ismart_notice").
 		Limit(pageSize).Offset(offset).
 		Find(&notices).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
@@ -83,7 +83,6 @@ func (s *NoticeService) Get(query map[string]interface{}, paginate map[string]in
 		if notices[i].FileType == "" {
 			notices[i].FileType = field.FileTypePdf
 		}
-		notices[i].File = nil
 	}
 
 	return notices, base_models.PaginationResult{
@@ -128,7 +127,8 @@ func (s *NoticeService) Delete(ids []uint) error {
 
 func (s *NoticeService) GetByID(id uint) (*base_models.Notice, error) {
 	var notice base_models.Notice
-	if err := s.db.Preload("File").First(&notice, id).Error; err != nil {
+	if err := s.db.Select("notices.*, notices.is_ismart_notice as is_ismart_notice").
+		Preload("File").First(&notice, id).Error; err != nil {
 		return nil, err
 	}
 
