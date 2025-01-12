@@ -29,6 +29,7 @@ type ServiceContainer struct {
 	superAdminService    base_services.InterfaceSuperAdminService
 	uploadService        base_services.IUploadService
 	deviceService        base_services.InterfaceDeviceService
+	noticeSyncService    base_services.InterfaceNoticeSyncService
 
 	// Building Admin Services
 	buildingAdminAdvertisementService building_admin_services.InterfaceBuildingAdminAdvertisementService
@@ -104,6 +105,15 @@ func (c *ServiceContainer) initializeServices() {
 	// Use global Redis connection
 	c.uploadService = base_services.NewUploadService(c.db, databases.REDIS_CONN)
 
+	// Initialize Notice Sync Service
+	c.noticeSyncService = base_services.NewNoticeSyncService(
+		c.db,
+		databases.REDIS_CONN,
+		c.buildingService,
+		c.uploadService,
+		c.fileService,
+	)
+
 	// Initialize Relationship Services
 	c.buildingAdminBuildingService = relationship_service.NewBuildingAdminBuildingService(c.db)
 	c.advertisementBuildingService = relationship_service.NewAdvertisementBuildingService(c.db)
@@ -153,6 +163,8 @@ func (c *ServiceContainer) GetService(name string) interface{} {
 		return c.uploadService
 	case "device":
 		return c.deviceService
+	case "noticeSync":
+		return c.noticeSyncService
 
 	// Building admin services
 	case "buildingAdminAdvertisement":

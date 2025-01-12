@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -11,12 +12,12 @@ import (
 	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"github.com/The-Healthist/iboard_http_service/router"
+	base_services "github.com/The-Healthist/iboard_http_service/services/base"
+	"github.com/The-Healthist/iboard_http_service/services/container"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-
 	"golang.org/x/crypto/bcrypt"
-
 	"gorm.io/gorm"
 )
 
@@ -145,6 +146,11 @@ func main() {
 		}
 	}()
 
+	// Initialize service container
+	log.Println("Initializing service container...")
+	serviceContainer := container.NewServiceContainer(db)
+	log.Println("Service container initialized successfully")
+
 	// Configure Gin
 	log.Println("Configuring Gin framework...")
 	gin.SetMode(gin.ReleaseMode)
@@ -168,6 +174,13 @@ func main() {
 	log.Println("Registering routes...")
 	router.RegisterRoute(r)
 	log.Println("Routes registered successfully")
+
+	// Start notice sync scheduler
+	log.Println("Starting notice sync scheduler...")
+	ctx := context.Background()
+	noticeSyncService := serviceContainer.GetService("noticeSync").(base_services.InterfaceNoticeSyncService)
+	noticeSyncService.StartSyncScheduler(ctx)
+	log.Println("Notice sync scheduler started successfully")
 
 	// Start server
 	serverAddr := "0.0.0.0:10031"
