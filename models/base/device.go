@@ -7,6 +7,7 @@ type Device struct {
 	Building   Building       `json:"building" gorm:"foreignKey:BuildingID"`
 	BuildingID uint           `json:"buildingId" `
 	Settings   DeviceSettings `json:"settings" gorm:"embedded"`
+	Status     string         `json:"status" gorm:"-"` // 设备在线状态，不存储在数据库中
 }
 
 // DeviceSettings contains all settings for a device

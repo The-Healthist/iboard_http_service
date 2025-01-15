@@ -39,6 +39,7 @@ services:
     networks:
       - iboard-network
 
+
   redis:
     image: redis:7.4.1
     container_name: iboard_redis

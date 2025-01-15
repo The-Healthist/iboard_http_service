@@ -312,19 +312,13 @@ func (c *BuildingController) GetOne() {
 	idStr := c.Ctx.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   "Invalid building ID",
-			"message": "Please check the ID format",
-		})
+		c.Ctx.JSON(400, gin.H{"error": "Invalid building ID"})
 		return
 	}
 
-	building, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetByID(uint(id))
+	building, err := c.Container.GetService("building").(base_services.InterfaceBuildingService).GetByIDWithDevices(uint(id))
 	if err != nil {
-		c.Ctx.JSON(400, gin.H{
-			"error":   err.Error(),
-			"message": "Failed to get building",
-		})
+		c.Ctx.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 

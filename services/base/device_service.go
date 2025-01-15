@@ -18,12 +18,12 @@ import (
 func getDeviceHealthTimeout() int {
 	timeout := os.Getenv("DEVICE_HEALTH_TIMEOUT")
 	if timeout == "" {
-		return 300 // default to 5 minutes if not set
+		return 600 // default to 1 hour if not set
 	}
 
 	timeoutInt, err := strconv.Atoi(timeout)
 	if err != nil {
-		return 300 // default to 5 minutes if invalid value
+		return 600 // default to 1 hour if invalid value
 	}
 
 	return timeoutInt
