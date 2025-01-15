@@ -1,11 +1,13 @@
 package http_base_controller
 
 import (
+	"fmt"
 	"strconv"
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	base_services "github.com/The-Healthist/iboard_http_service/services/base"
 	"github.com/The-Healthist/iboard_http_service/services/container"
+	relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/The-Healthist/iboard_http_service/utils"
 	"github.com/gin-gonic/gin"
 )
@@ -186,23 +188,52 @@ func (c *DeviceController) Update() {
 		return
 	}
 
+	// 如果需要更新 buildingId，先处理绑定关系
+	if form.BuildingID != 0 {
+		// 先解绑
+		if err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).UnbindDevice(form.ID); err != nil {
+			c.Ctx.JSON(400, gin.H{"error": fmt.Sprintf("failed to unbind device: %v", err)})
+			return
+		}
+
+		// 再绑定到新建筑物
+		if err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).BindDevices(form.BuildingID, []uint{form.ID}); err != nil {
+			c.Ctx.JSON(400, gin.H{"error": fmt.Sprintf("failed to bind device: %v", err)})
+			return
+		}
+	}
+
+	// 更新其他字段
 	updates := map[string]interface{}{}
 	if form.DeviceID != "" {
 		updates["device_id"] = form.DeviceID
 	}
-	if form.BuildingID != 0 {
-		updates["building_id"] = form.BuildingID
-	}
 	if form.Settings != nil {
-		updates["settings"] = *form.Settings
+		updates["arrearage_update_duration"] = form.Settings.ArrearageUpdateDuration
+		updates["notice_update_duration"] = form.Settings.NoticeUpdateDuration
+		updates["advertisement_update_duration"] = form.Settings.AdvertisementUpdateDuration
+		updates["advertisement_play_duration"] = form.Settings.AdvertisementPlayDuration
+		updates["notice_play_duration"] = form.Settings.NoticePlayDuration
+		updates["spare_duration"] = form.Settings.SpareDuration
+		updates["notice_stay_duration"] = form.Settings.NoticeStayDuration
 	}
 
-	if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).Update(form.ID, updates); err != nil {
+	updatedDevice, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).Update(form.ID, updates)
+	if err != nil {
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Ctx.JSON(200, gin.H{"message": "update device success"})
+	// 获取设备状态
+	deviceWithStatus := base_services.DeviceWithStatus{
+		Device: *updatedDevice,
+		Status: c.Container.GetService("device").(base_services.InterfaceDeviceService).CheckDeviceStatus(updatedDevice.ID),
+	}
+
+	c.Ctx.JSON(200, gin.H{
+		"message": "update device success",
+		"data":    deviceWithStatus,
+	})
 }
 
 func (c *DeviceController) Delete() {

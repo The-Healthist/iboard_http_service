@@ -10,7 +10,6 @@ import (
 
 	databases "github.com/The-Healthist/iboard_http_service/database"
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
-	http_relationship_service "github.com/The-Healthist/iboard_http_service/services/relationship"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
 	"gorm.io/gorm"
 )
@@ -34,28 +33,26 @@ type InterfaceDeviceService interface {
 	Create(device *base_models.Device) error
 	CreateMany(devices []*base_models.Device) error
 	Get(query map[string]interface{}, paginate map[string]interface{}) ([]base_models.Device, base_models.PaginationResult, error)
-	Update(id uint, updates map[string]interface{}) error
+	Update(id uint, updates map[string]interface{}) (*base_models.Device, error)
 	Delete(ids []uint) error
 	GetByID(id uint) (*base_models.Device, error)
 	GetByDeviceID(deviceID string) (*base_models.Device, error)
 	GetDeviceAdvertisements(deviceId string) ([]base_models.Advertisement, error)
 	GetDeviceNotices(deviceId string) ([]base_models.Notice, error)
 	UpdateDeviceHealth(deviceID uint) error
-	checkDeviceStatus(deviceID uint) string
+	CheckDeviceStatus(deviceID uint) string
 	GetWithStatus(query map[string]interface{}, pagination map[string]interface{}) ([]DeviceWithStatus, base_models.PaginationResult, error)
 	GetByIDWithStatus(id uint) (*DeviceWithStatus, error)
 	GetDevicesByBuildingWithStatus(buildingID uint) ([]DeviceWithStatus, error)
 }
 
 type DeviceService struct {
-	db                    *gorm.DB
-	deviceBuildingService http_relationship_service.InterfaceDeviceBuildingService
+	db *gorm.DB
 }
 
 func NewDeviceService(db *gorm.DB) InterfaceDeviceService {
 	return &DeviceService{
-		db:                    db,
-		deviceBuildingService: http_relationship_service.NewDeviceBuildingService(db),
+		db: db,
 	}
 }
 
@@ -95,7 +92,16 @@ func (s *DeviceService) Get(query map[string]interface{}, paginate map[string]in
 		db = db.Order("created_at ASC")
 	}
 
+	// 选择所有字段，包括嵌入的设置字段
 	if err := db.Preload("Building").
+		Select("devices.*, " +
+			"arrearage_update_duration, " +
+			"notice_update_duration, " +
+			"advertisement_update_duration, " +
+			"advertisement_play_duration, " +
+			"notice_play_duration, " +
+			"spare_duration, " +
+			"notice_stay_duration").
 		Limit(pageSize).Offset(offset).
 		Find(&devices).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
@@ -108,8 +114,10 @@ func (s *DeviceService) Get(query map[string]interface{}, paginate map[string]in
 	}, nil
 }
 
-func (s *DeviceService) Update(id uint, updates map[string]interface{}) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+func (s *DeviceService) Update(id uint, updates map[string]interface{}) (*base_models.Device, error) {
+	var updatedDevice *base_models.Device
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// 获取当前设备信息
 		var device base_models.Device
 		if err := tx.First(&device, id).Error; err != nil {
@@ -124,42 +132,80 @@ func (s *DeviceService) Update(id uint, updates map[string]interface{}) error {
 				if err := tx.First(&building, uint(newBuildingID)).Error; err != nil {
 					return fmt.Errorf("new building not found: %v", err)
 				}
-			}
 
-			// 直接更新 building_id
-			if err := tx.Model(&device).Update("building_id", uint(newBuildingID)).Error; err != nil {
-				return fmt.Errorf("failed to update building_id: %v", err)
+				// 检查设备是否已经绑定到其他建筑物
+				if device.BuildingID != 0 && device.BuildingID != uint(newBuildingID) {
+					// 先解绑
+					if err := tx.Model(&device).Update("building_id", nil).Error; err != nil {
+						return fmt.Errorf("failed to unbind old building: %v", err)
+					}
+				}
+
+				// 绑定到新建筑物
+				if err := tx.Model(&device).Update("building_id", uint(newBuildingID)).Error; err != nil {
+					return fmt.Errorf("failed to bind to new building: %v", err)
+				}
+			} else {
+				// 如果新的 buildingId 为 0，则只进行解绑
+				if device.BuildingID != 0 {
+					if err := tx.Model(&device).Update("building_id", nil).Error; err != nil {
+						return fmt.Errorf("failed to unbind building: %v", err)
+					}
+				}
 			}
 
 			// 从更新映射中删除 buildingId，因为已经处理过了
 			delete(updates, "buildingId")
 		}
 
-		// 如果更新包含 settings 字段，需要特殊处理
-		if settings, ok := updates["settings"]; ok {
-			if settingsMap, ok := settings.(map[string]interface{}); ok {
-				// 将 settings 中的字段直接添加到更新字段中
-				updates["arrearage_update_duration"] = int(settingsMap["arrearageUpdateDuration"].(float64))
-				updates["notice_update_duration"] = int(settingsMap["noticeUpdateDuration"].(float64))
-				updates["advertisement_update_duration"] = int(settingsMap["advertisementUpdateDuration"].(float64))
-				updates["advertisement_play_duration"] = int(settingsMap["advertisementPlayDuration"].(float64))
-				updates["notice_play_duration"] = int(settingsMap["noticePlayDuration"].(float64))
-				updates["spare_duration"] = int(settingsMap["spareDuration"].(float64))
-				updates["notice_stay_duration"] = int(settingsMap["noticeStayDuration"].(float64))
-			}
-			// 删除原始的 settings 字段
-			delete(updates, "settings")
-		}
-
-		// 更新其他字段
-		if len(updates) > 0 {
-			if err := tx.Model(&device).Updates(updates).Error; err != nil {
+		// 更新设备基本信息
+		if deviceID, ok := updates["device_id"]; ok {
+			if err := tx.Model(&device).Update("device_id", deviceID).Error; err != nil {
 				return err
 			}
+			delete(updates, "device_id")
 		}
 
+		// 更新设置字段
+		settingsUpdates := make(map[string]interface{})
+		settingsFields := []string{
+			"arrearage_update_duration",
+			"notice_update_duration",
+			"advertisement_update_duration",
+			"advertisement_play_duration",
+			"notice_play_duration",
+			"spare_duration",
+			"notice_stay_duration",
+		}
+
+		for _, field := range settingsFields {
+			if value, ok := updates[field]; ok {
+				settingsUpdates[field] = value
+				delete(updates, field)
+			}
+		}
+
+		// 如果有设置字段需要更新
+		if len(settingsUpdates) > 0 {
+			if err := tx.Model(&device).Updates(settingsUpdates).Error; err != nil {
+				return fmt.Errorf("failed to update settings: %v", err)
+			}
+		}
+
+		// 获取更新后的设备信息，确保获取最新状态
+		if err := tx.Preload("Building").First(&device, id).Error; err != nil {
+			return err
+		}
+
+		updatedDevice = &device
 		return nil
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedDevice, nil
 }
 
 func (s *DeviceService) Delete(ids []uint) error {
@@ -175,9 +221,29 @@ func (s *DeviceService) Delete(ids []uint) error {
 
 func (s *DeviceService) GetByID(id uint) (*base_models.Device, error) {
 	var device base_models.Device
+
+	// 使用原始SQL查询获取设备信息
+	if err := s.db.Raw(`
+		SELECT 
+			d.*,
+			d.arrearage_update_duration,
+			d.notice_update_duration,
+			d.advertisement_update_duration,
+			d.advertisement_play_duration,
+			d.notice_play_duration,
+			d.spare_duration,
+			d.notice_stay_duration
+		FROM devices d
+		WHERE d.id = ?
+	`, id).Scan(&device).Error; err != nil {
+		return nil, err
+	}
+
+	// 加载关联的建筑信息
 	if err := s.db.Preload("Building").First(&device, id).Error; err != nil {
 		return nil, err
 	}
+
 	return &device, nil
 }
 
@@ -326,8 +392,8 @@ func (s *DeviceService) UpdateDeviceHealth(deviceID uint) error {
 	return nil
 }
 
-// checkDeviceStatus 检查设备状态
-func (s *DeviceService) checkDeviceStatus(deviceID uint) string {
+// CheckDeviceStatus 检查设备状态
+func (s *DeviceService) CheckDeviceStatus(deviceID uint) string {
 	key := fmt.Sprintf("device:online:%d", deviceID)
 	ctx := context.Background()
 
@@ -350,7 +416,7 @@ func (s *DeviceService) GetWithStatus(query map[string]interface{}, pagination m
 	for i, device := range devices {
 		devicesWithStatus[i] = DeviceWithStatus{
 			Device: device,
-			Status: s.checkDeviceStatus(device.ID),
+			Status: s.CheckDeviceStatus(device.ID),
 		}
 	}
 
@@ -366,7 +432,7 @@ func (s *DeviceService) GetByIDWithStatus(id uint) (*DeviceWithStatus, error) {
 
 	return &DeviceWithStatus{
 		Device: *device,
-		Status: s.checkDeviceStatus(device.ID),
+		Status: s.CheckDeviceStatus(device.ID),
 	}, nil
 }
 
@@ -386,7 +452,7 @@ func (s *DeviceService) GetDevicesByBuildingWithStatus(buildingID uint) ([]Devic
 	for i, device := range devices {
 		devicesWithStatus[i] = DeviceWithStatus{
 			Device: device,
-			Status: s.checkDeviceStatus(device.ID),
+			Status: s.CheckDeviceStatus(device.ID),
 		}
 	}
 

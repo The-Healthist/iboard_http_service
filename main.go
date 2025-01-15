@@ -6,7 +6,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	databases "github.com/The-Healthist/iboard_http_service/database"
@@ -21,6 +24,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	maxLogFileSize = 1 * 1024 * 1024 // 1MB per log file
+	maxLogFiles    = 365             // Maximum number of log files to keep
+	logTimeFormat  = "2006-01-02"    // Log file date format
+)
+
 // setupLogging configures the logging for both file and console output
 func setupLogging() (*os.File, error) {
 	// Create logs directory if it doesn't exist
@@ -28,9 +37,23 @@ func setupLogging() (*os.File, error) {
 		return nil, fmt.Errorf("failed to create logs directory: %v", err)
 	}
 
+	// Clean up old log files if we exceed the maximum
+	if err := cleanupOldLogs(); err != nil {
+		return nil, fmt.Errorf("failed to cleanup old logs: %v", err)
+	}
+
 	// Create log file with timestamp
-	currentTime := time.Now().Format("2006-01-02")
+	currentTime := time.Now().Format(logTimeFormat)
 	logFileName := fmt.Sprintf("logs/app_%s.log", currentTime)
+
+	// Check if current log file exists and its size
+	if info, err := os.Stat(logFileName); err == nil {
+		if info.Size() >= maxLogFileSize {
+			// If file exists and exceeds size limit, create a new file with timestamp
+			logFileName = fmt.Sprintf("logs/app_%s_%d.log", currentTime, time.Now().Unix())
+		}
+	}
+
 	logFile, err := os.OpenFile(logFileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %v", err)
@@ -41,6 +64,39 @@ func setupLogging() (*os.File, error) {
 	log.SetOutput(gin.DefaultWriter)
 
 	return logFile, nil
+}
+
+func cleanupOldLogs() error {
+	files, err := os.ReadDir("logs")
+	if err != nil {
+		return fmt.Errorf("failed to read logs directory: %v", err)
+	}
+
+	var logFiles []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "app_") {
+			logFiles = append(logFiles, filepath.Join("logs", file.Name()))
+		}
+	}
+
+	// If we have more files than the maximum allowed
+	if len(logFiles) >= maxLogFiles {
+		// Sort files by modification time (oldest first)
+		sort.Slice(logFiles, func(i, j int) bool {
+			iInfo, _ := os.Stat(logFiles[i])
+			jInfo, _ := os.Stat(logFiles[j])
+			return iInfo.ModTime().Before(jInfo.ModTime())
+		})
+
+		// Remove oldest files until we're under the limit
+		for i := 0; i < len(logFiles)-maxLogFiles+1; i++ {
+			if err := os.Remove(logFiles[i]); err != nil {
+				return fmt.Errorf("failed to remove old log file %s: %v", logFiles[i], err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func initSuperAdmin(db *gorm.DB) error {

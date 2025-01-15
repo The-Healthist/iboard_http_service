@@ -1,12 +1,10 @@
-
-
 services:
   backend:
     build: .  # 使用本地Dockerfile构建
     container_name: iboard_http_service
     restart: always
     ports:
-      - "10032:10032"
+      - "10031:10031"
     environment:
       - DB_HOST=mysql
       - DB_PORT=3306
@@ -25,6 +23,8 @@ services:
       - SMTP_PORT=587
       - SMTP_USER=your-email@example.com
       - SMTP_PASS=your-password
+    volumes:
+      - ./logs:/app/logs  # 将日志目录挂载到主机
     depends_on:
       mysql:
         condition: service_healthy
@@ -32,7 +32,11 @@ services:
         condition: service_started
     networks:
       - iboard-network
-
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "365"
 
   mysql:
     image: mysql:8.0
@@ -49,10 +53,15 @@ services:
     networks:
       - iboard-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-padmin123"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p1090119your"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "3"
 
   redis:
     image: redis:7.4.1
@@ -64,6 +73,11 @@ services:
       - redis_data:/data
     networks:
       - iboard-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "365"
 
 networks:
   iboard-network:
