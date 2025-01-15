@@ -23,7 +23,6 @@ vendor/
 # Environment files
 .env
 .env.local
-docker-compose.yml
 
 # Log files
 *.log

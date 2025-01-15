@@ -108,3 +108,93 @@
   - login(ismartId,password)
   - get_advertisements_building
   - get_notices_building 
+
+
+<!-- services:
+  backend:
+    build: .  # 使用本地Dockerfile构建
+    container_name: iboard_http_service
+    restart: always
+    ports:
+      - "10031:10031"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=1090119your
+      - DB_NAME=iboard_db
+      - DB_TIMEZONE=Asia/Shanghai
+
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+
+      # 根据实际情况配置邮件服务
+      - SMTP_ADDR=smtp.example.com
+      - SMTP_PORT=587
+      - SMTP_USER=your-email@example.com
+      - SMTP_PASS=your-password
+    volumes:
+      - ./logs:/app/logs  # 将日志目录挂载到主机
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - iboard-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "365"
+
+  mysql:
+    image: mysql:8.0
+    container_name: iboard_mysql
+    restart: always
+    ports:
+      - "3308:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=1090119your
+      - MYSQL_DATABASE=iboard_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - iboard-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p1090119your"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "3"
+
+  redis:
+    image: redis:7.4.1
+    container_name: iboard_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - iboard-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "365"
+
+networks:
+  iboard-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data: -->
