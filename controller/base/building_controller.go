@@ -31,6 +31,7 @@ type InterfaceBuildingController interface {
 	Delete()
 	GetOne()
 	SyncNotice()
+	ManualSyncNotice()
 }
 
 type BuildingController struct {
@@ -77,6 +78,11 @@ func HandleFuncBuilding(container *container.ServiceContainer, method string) gi
 		return func(ctx *gin.Context) {
 			controller := NewBuildingController(ctx, container)
 			controller.SyncNotice()
+		}
+	case "manualSyncNotice":
+		return func(ctx *gin.Context) {
+			controller := NewBuildingController(ctx, container)
+			controller.ManualSyncNotice()
 		}
 	default:
 		return func(ctx *gin.Context) {
@@ -517,6 +523,24 @@ func (c *BuildingController) SyncNotice() {
 		md5Str := hex.EncodeToString(md5Hash[:])
 		mimeType := http.DetectContentType(fileContent)
 
+		// Check if a notice with this file is already bound to the building
+		var existingNoticeCount int64
+		if err := databases.DB_CONN.Model(&base_models.Notice{}).
+			Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+			Joins("JOIN files ON notices.file_id = files.id").
+			Where("notice_buildings.building_id = ? AND files.md5 = ? AND notices.is_ismart_notice = ?",
+				id, md5Str, true).
+			Count(&existingNoticeCount).Error; err != nil {
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to check existing notice for file MD5 %s: %v", md5Str, err))
+			continue
+		}
+
+		if existingNoticeCount > 0 {
+			// Notice with this file is already bound to the building
+			hasSyncedCount++
+			continue
+		}
+
 		// get uploader info from token
 		claims, exists := c.Ctx.Get("claims")
 		if !exists {
@@ -766,4 +790,22 @@ func (c *BuildingController) SyncNotice() {
 		"failedNotices":  failedNotices,
 		"totalProcessed": len(respBody),
 	})
+}
+
+// ManualSyncNotice handles manual notice synchronization for a building
+func (c *BuildingController) ManualSyncNotice() {
+	id, err := strconv.ParseUint(c.Ctx.Param("id"), 10, 64)
+	if err != nil {
+		c.Ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid building ID"})
+		return
+	}
+
+	claims := c.Ctx.MustGet("claims").(jwt.MapClaims)
+	result, err := c.Container.GetService("noticeSync").(base_services.InterfaceNoticeSyncService).ManualSyncBuildingNotices(uint(id), claims)
+	if err != nil {
+		c.Ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Ctx.JSON(http.StatusOK, result)
 }

@@ -18,16 +18,26 @@ import (
 
 	base_models "github.com/The-Healthist/iboard_http_service/models/base"
 	"github.com/The-Healthist/iboard_http_service/utils/field"
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
+// processResult represents the result of processing a single notice
+type processResult struct {
+	noticeID     int
+	md5          string
+	success      bool
+	syncRequired bool
+	error        error
+}
+
 const (
-	minWorkers = 5  // min worker
-	maxWorkers = 20 // max worker
-	// ideal notices per worker
-	noticesPerWorker = 5
+	minWorkers       = 10 // increase min worker count
+	maxWorkers       = 30 // increase max worker count
+	noticesPerWorker = 3  // decrease notices per worker for better concurrency
 
 	// Building concurrency control
 	minBuildingWorkers       = 1    // min building worker
@@ -95,13 +105,21 @@ func getNoticeSyncCountCacheDuration() time.Duration {
 
 // calculateWorkerCount dynamically calculate worker count based on notice count
 func calculateWorkerCount(noticeCount int) int {
-	// Calculate suggested worker count based on notice count
+	// Calculate suggested worker count based on notice count and available CPU cores
+	cpuCount := runtime.NumCPU()
 	suggestedWorkers := noticeCount / noticesPerWorker
+
+	// Scale based on CPU cores
+	maxWorkersForCPU := cpuCount * 4
+
 	if suggestedWorkers < minWorkers {
 		return minWorkers
 	}
-	if suggestedWorkers > maxWorkers {
-		return maxWorkers
+	if suggestedWorkers > maxWorkers || suggestedWorkers > maxWorkersForCPU {
+		if maxWorkers < maxWorkersForCPU {
+			return maxWorkers
+		}
+		return maxWorkersForCPU
 	}
 	return suggestedWorkers
 }
@@ -125,8 +143,9 @@ func calculateBuildingWorkers(buildingCount int, cpuCores int) int {
 }
 
 type InterfaceNoticeSyncService interface {
-	SyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (map[string]interface{}, error)
+	SyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error)
 	StartSyncScheduler(ctx context.Context)
+	ManualSyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error)
 }
 
 type NoticeSyncService struct {
@@ -249,7 +268,7 @@ func (s *NoticeSyncService) updateCachedNoticeCount(ctx context.Context, buildin
 }
 
 // 6. SyncBuildingNotices
-func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (map[string]interface{}, error) {
+func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
 	ctx := context.Background()
 
 	// Get building info from cache first
@@ -345,7 +364,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 						hasSyncNotices = append(hasSyncNotices, int(notice.ID))
 					}
 				}
-				return map[string]interface{}{
+				return gin.H{
 					"message":           "No changes detected",
 					"successCount":      0,
 					"hasSyncedCount":    len(cachedIDs),
@@ -370,16 +389,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		}
 	}
 
-	// Prepare concurrent processing
-	type processResult struct {
-		noticeID     int
-		md5          string
-		success      bool
-		syncRequired bool
-		error        error
-	}
-
-	// Calculate optimal worker count based on the number of notices
+	// Calculate optimal worker count
 	workers := calculateWorkerCount(len(oldNotices))
 	resultChan := make(chan processResult, len(oldNotices))
 	semaphore := make(chan struct{}, workers)
@@ -462,16 +472,6 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	fmt.Printf("[NoticeSyncService] Concurrent processing completed for building %d\n", buildingID)
 
 	// Process deletions
-	for _, existingNotice := range existingNotices {
-		if existingNotice.File == nil {
-			continue
-		}
-
-		if !processedMD5s[existingNotice.File.Md5] {
-			changeNotices = append(changeNotices, int(existingNotice.ID))
-		}
-	}
-
 	deleteCount := 0
 	if len(changeNotices) > 0 {
 		var err error
@@ -492,7 +492,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		fmt.Printf("[NoticeSyncService] Warning: failed to update cached notice count: %v\n", err)
 	}
 
-	return map[string]interface{}{
+	return gin.H{
 		"message":           "Sync completed",
 		"successCount":      successCount,
 		"hasSyncedCount":    hasSyncedCount,
@@ -505,7 +505,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	}, nil
 }
 
-// 7. processNotice
+// processNotice handles the processing of a single notice
 func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNotice, fileContent []byte, claims jwt.MapClaims) error {
 	fileSize := len(fileContent)
 	md5Hash := md5.Sum(fileContent)
@@ -536,7 +536,6 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 	// Check if file exists
 	var existingFile base_models.File
 	var shouldUpload bool = true
-	var shouldAddFile bool = true
 	var fileForNotice *base_models.File
 
 	err := s.db.Where("md5 = ?", md5Str).First(&existingFile).Error
@@ -564,42 +563,41 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 			if err == nil {
 				if count > 0 {
 					shouldUpload = false
-					shouldAddFile = false
 					fileForNotice = &existingFile
 				} else {
 					if err := s.db.Delete(&existingNotice).Error; err != nil {
 						return fmt.Errorf("failed to delete old notice: %v", err)
 					}
 					shouldUpload = false
-					shouldAddFile = false
 					fileForNotice = &existingFile
 				}
 			}
 		} else {
 			shouldUpload = false
-			shouldAddFile = false
 			fileForNotice = &existingFile
 		}
 	} else if err == gorm.ErrRecordNotFound {
 		shouldUpload = true
-		shouldAddFile = true
 
-		// Generate file name and get upload params
+		// Generate unique file name using UUID
 		currentTime := time.Now()
 		dir := currentTime.Format("2006-01-02") + "/"
-		fileName := fmt.Sprintf("%d.pdf", oldNotice.ID)
+		uuid := uuid.New().String()
+		fileName := uuid + ".pdf"
 		objectKey := dir + fileName
 
-		uploadParams, err := s.uploadService.GetUploadParamsSync(objectKey)
-		if err != nil {
-			return fmt.Errorf("failed to get upload params: %v", err)
+		// Get OSS configuration from environment variables
+		host := os.Getenv("HOST")
+		if host == "" {
+			host = "http://idreamsky.oss-cn-beijing.aliyuncs.com"
 		}
 
+		// Create file record with OSS path
 		fileForNotice = &base_models.File{
-			Path:         uploadParams["host"].(string) + "/" + objectKey,
+			Path:         host + "/" + objectKey, // Store the complete OSS URL
 			Size:         int64(fileSize),
 			MimeType:     mimeType,
-			Oss:          "aws",
+			Oss:          "aliyun",
 			UploaderType: uploaderType,
 			UploaderID:   uploaderID,
 			Uploader:     uploaderEmail,
@@ -607,6 +605,12 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 		}
 
 		if shouldUpload {
+			// Get upload parameters from service
+			uploadParams, err := s.uploadService.GetUploadParamsSync(objectKey)
+			if err != nil {
+				return fmt.Errorf("failed to get upload params: %v", err)
+			}
+
 			// Upload file to OSS
 			var b bytes.Buffer
 			w := multipart.NewWriter(&b)
@@ -671,20 +675,18 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 				return fmt.Errorf("upload failed with status %d: %s", uploadResp.StatusCode, string(respBody))
 			}
 		}
-	}
 
-	if shouldAddFile {
+		// Create file record
 		if err := s.fileService.Create(fileForNotice); err != nil {
 			return fmt.Errorf("failed to create file record: %v", err)
 		}
 	}
 
 	// Create notice
-	noticeType := s.mapNoticeType(oldNotice.MessType)
 	notice := &base_models.Notice{
 		Title:          oldNotice.MessTitle,
 		Description:    oldNotice.MessTitle,
-		Type:           noticeType,
+		Type:           s.mapNoticeType(oldNotice.MessType),
 		Status:         field.Status("active"),
 		StartTime:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
 		EndTime:        time.Date(2100, 2, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
@@ -694,23 +696,19 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 		FileType:       field.FileTypePdf,
 	}
 
-	// Create notice and bind to building
-	tx := s.db.Begin()
-	if err := tx.Create(notice).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to create notice: %v", err)
-	}
+	// Create notice and bind to building in a transaction
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(notice).Error; err != nil {
+			return fmt.Errorf("failed to create notice: %v", err)
+		}
 
-	if err := tx.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)", notice.ID, buildingID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to bind notice to building: %v", err)
-	}
+		if err := tx.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)",
+			notice.ID, buildingID).Error; err != nil {
+			return fmt.Errorf("failed to bind notice to building: %v", err)
+		}
 
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("failed to commit transaction: %v", err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // 8. processDeletedNotices
@@ -845,7 +843,7 @@ func (s *NoticeSyncService) StartSyncScheduler(ctx context.Context) {
 		adminClaims := jwt.MapClaims{
 			"id":      float64(1),
 			"isAdmin": true,
-			"email":   "system@iboard.com",
+			"email":   "admin@example.com",
 		}
 
 		// 立即执行一次同步
@@ -901,7 +899,7 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 	resultChan := make(chan struct {
 		buildingID uint
 		name       string
-		result     map[string]interface{}
+		result     gin.H
 		err        error
 	}, buildingCount)
 
@@ -922,7 +920,7 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 			resultChan <- struct {
 				buildingID uint
 				name       string
-				result     map[string]interface{}
+				result     gin.H
 				err        error
 			}{
 				buildingID: b.ID,
@@ -980,4 +978,157 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 		}
 		fmt.Println() // Add a blank line between buildings
 	}
+}
+
+// ManualSyncBuildingNotices performs a manual sync without cache checking
+func (s *NoticeSyncService) ManualSyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
+	// Get building info
+	building, err := s.buildingService.GetByID(buildingID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get building: %v", err)
+	}
+
+	// Get existing notices
+	var existingNotices []base_models.Notice
+	if err := s.db.Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", buildingID, true).
+		Preload("File").Find(&existingNotices).Error; err != nil {
+		return nil, fmt.Errorf("failed to get existing notices: %v", err)
+	}
+
+	// Request notices from old system
+	url := "https://uqf0jqfm77.execute-api.ap-east-1.amazonaws.com/prod/v1/building_board/building-notices"
+	reqBody := struct {
+		BlgID string `json:"blg_id"`
+	}{
+		BlgID: building.IsmartID,
+	}
+
+	reqBodyJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %v", err)
+	}
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(reqBodyJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to request old system: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var oldNotices []OldSystemNotice
+	if err := json.NewDecoder(resp.Body).Decode(&oldNotices); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	// Create MD5 map for existing notices
+	existingMD5Map := make(map[string]bool)
+	existingMD5ToNoticeID := make(map[string]uint)
+	for _, notice := range existingNotices {
+		if notice.File != nil {
+			existingMD5Map[notice.File.Md5] = true
+			existingMD5ToNoticeID[notice.File.Md5] = notice.ID
+		}
+	}
+
+	// Calculate optimal worker count
+	workers := calculateWorkerCount(len(oldNotices))
+	resultChan := make(chan processResult, len(oldNotices))
+	semaphore := make(chan struct{}, workers)
+
+	fmt.Printf("[NoticeSyncService] Starting concurrent processing with %d workers for %d notices\n",
+		workers, len(oldNotices))
+
+	// Process notices concurrently
+	for _, oldNotice := range oldNotices {
+		go func(notice OldSystemNotice) {
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			result := processResult{noticeID: notice.ID}
+
+			// Download and process file
+			fileResp, err := http.Get(notice.MessFile)
+			if err != nil {
+				result.error = fmt.Errorf("failed to download file: %v", err)
+				resultChan <- result
+				return
+			}
+			defer fileResp.Body.Close()
+
+			fileContent, err := io.ReadAll(fileResp.Body)
+			if err != nil {
+				result.error = fmt.Errorf("failed to read file content: %v", err)
+				resultChan <- result
+				return
+			}
+
+			md5Hash := md5.Sum(fileContent)
+			md5Str := hex.EncodeToString(md5Hash[:])
+			result.md5 = md5Str
+
+			// Check if file exists
+			if existingMD5Map[md5Str] {
+				result.success = true
+				result.syncRequired = false
+			} else {
+				result.syncRequired = true
+				if err := s.processNotice(buildingID, notice, fileContent, claims); err != nil {
+					result.error = err
+				} else {
+					result.success = true
+				}
+			}
+
+			resultChan <- result
+		}(oldNotice)
+	}
+
+	// Collect results
+	var successCount, hasSyncedCount int
+	var failedNotices []string
+	var needSyncNotices, hasSyncNotices, changeNotices []int
+	processedMD5s := make(map[string]bool)
+
+	for i := 0; i < len(oldNotices); i++ {
+		result := <-resultChan
+		if result.error != nil {
+			failedNotices = append(failedNotices, fmt.Sprintf("Failed to process notice ID %d: %v", result.noticeID, result.error))
+			continue
+		}
+
+		processedMD5s[result.md5] = true
+		if result.syncRequired {
+			if result.success {
+				successCount++
+				needSyncNotices = append(needSyncNotices, result.noticeID)
+			}
+		} else {
+			hasSyncedCount++
+			if id, ok := existingMD5ToNoticeID[result.md5]; ok {
+				hasSyncNotices = append(hasSyncNotices, int(id))
+			}
+		}
+	}
+
+	// Process deletions
+	deleteCount := 0
+	if len(changeNotices) > 0 {
+		var err error
+		deleteCount, err = s.processDeletedNotices(buildingID, existingNotices, processedMD5s, &failedNotices)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process deletions: %v", err)
+		}
+	}
+
+	return gin.H{
+		"message":           "Manual sync completed",
+		"successCount":      successCount,
+		"hasSyncedCount":    hasSyncedCount,
+		"deleteCount":       deleteCount,
+		"failedNotices":     failedNotices,
+		"totalProcessed":    len(oldNotices),
+		"has_sync_notices":  hasSyncNotices,
+		"need_sync_notices": needSyncNotices,
+		"change_notices":    changeNotices,
+	}, nil
 }

@@ -77,7 +77,7 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		adminGroup.GET("/building/:id", http_base_controller.HandleFuncBuilding(serviceContainer, "getOne"))
 		adminGroup.PUT("/building", http_base_controller.HandleFuncBuilding(serviceContainer, "update"))
 		adminGroup.DELETE("/building", http_base_controller.HandleFuncBuilding(serviceContainer, "delete"))
-		adminGroup.POST("/building/:id/sync_notice", http_base_controller.HandleFuncBuilding(serviceContainer, "syncNotice"))
+		adminGroup.POST("/building/:id/sync_notice", http_base_controller.HandleFuncBuilding(serviceContainer, "manualSyncNotice"))
 
 		// Relationship routes
 		// Building Admin Building routes

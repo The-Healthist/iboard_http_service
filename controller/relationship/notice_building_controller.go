@@ -52,7 +52,7 @@ func (c *NoticeBuildingController) getService() relationship_service.InterfaceNo
 
 func (c *NoticeBuildingController) BindBuildings() {
 	var form struct {
-		NoticeIDs   []uint `json:"noticeIds" binding:"required,min=1"`
+		NoticeIDs   []uint `json:"noticeIds"`
 		BuildingIDs []uint `json:"buildingIds" binding:"required,min=1"`
 	}
 
@@ -66,6 +66,12 @@ func (c *NoticeBuildingController) BindBuildings() {
 		NotFoundNotices   []uint                   `json:"notFoundNotices,omitempty"`
 		NotFoundBuildings []uint                   `json:"notFoundBuildings,omitempty"`
 		AlreadyBound      []map[string]interface{} `json:"alreadyBound,omitempty"`
+	}
+
+	// If noticeIds is empty, return success with empty results
+	if len(form.NoticeIDs) == 0 {
+		c.Ctx.JSON(200, response)
+		return
 	}
 
 	// 检查所有通知是否存在
