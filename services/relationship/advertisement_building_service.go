@@ -27,18 +27,42 @@ func NewAdvertisementBuildingService(db *gorm.DB) InterfaceAdvertisementBuilding
 
 func (s *AdvertisementBuildingService) BindBuildings(advertisementID uint, buildingIDs []uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		var advertisement base_models.Advertisement
-		if err := tx.Preload("Buildings").First(&advertisement, advertisementID).Error; err != nil {
+		// check if the advertisement exists
+		exists, err := s.AdvertisementExists(advertisementID)
+		if err != nil {
 			return err
 		}
-
-		var buildings []base_models.Building
-		if err := tx.Find(&buildings, buildingIDs).Error; err != nil {
-			return err
+		if !exists {
+			return errors.New("advertisement not found")
 		}
 
-		if err := tx.Model(&advertisement).Association("Buildings").Append(&buildings); err != nil {
+		// check if all buildings exist
+		missingIDs, err := s.BulkCheckBuildingsExistence(buildingIDs)
+		if err != nil {
 			return err
+		}
+		if len(missingIDs) > 0 {
+			return errors.New("some buildings not found")
+		}
+
+		// check if the relationship already exists
+		for _, buildingID := range buildingIDs {
+			var count int64
+			if err := tx.Table("advertisement_buildings").
+				Where("advertisement_id = ? AND building_id = ?", advertisementID, buildingID).
+				Count(&count).Error; err != nil {
+				return err
+			}
+
+			// if not exists, insert
+			if count == 0 {
+				if err := tx.Exec(
+					"INSERT INTO advertisement_buildings (advertisement_id, building_id) VALUES (?, ?)",
+					advertisementID, buildingID,
+				).Error; err != nil {
+					return err
+				}
+			}
 		}
 
 		return nil
