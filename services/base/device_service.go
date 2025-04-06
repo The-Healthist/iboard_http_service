@@ -327,10 +327,21 @@ func (s *DeviceService) GetDeviceAdvertisements(deviceId string) ([]base_models.
 		return nil, fmt.Errorf("failed to get advertisements: %v", err)
 	}
 
-	// Clean up empty files
+	// Clean up empty files and check endTime
+	now := time.Now()
 	for i := range advertisements {
 		if advertisements[i].File != nil && advertisements[i].File.ID == 0 {
 			advertisements[i].File = nil
+		}
+
+		// Check if advertisement has expired
+		if advertisements[i].EndTime.Before(now) && advertisements[i].Status == field.Status("active") {
+			// Update status in database
+			if err := s.db.Model(&base_models.Advertisement{}).Where("id = ?", advertisements[i].ID).Update("status", field.Status("inactive")).Error; err != nil {
+				return nil, fmt.Errorf("failed to update advertisement status: %v", err)
+			}
+			// Update status in memory
+			advertisements[i].Status = field.Status("inactive")
 		}
 	}
 
@@ -358,13 +369,24 @@ func (s *DeviceService) GetDeviceNotices(deviceId string) ([]base_models.Notice,
 		return nil, fmt.Errorf("failed to get notices: %v", err)
 	}
 
-	// Clean up empty files and set default values
+	// Clean up empty files, set default values and check endTime
+	now := time.Now()
 	for i := range notices {
 		if notices[i].FileType == "" {
 			notices[i].FileType = field.FileTypePdf
 		}
 		if notices[i].File != nil && notices[i].File.ID == 0 {
 			notices[i].File = nil
+		}
+
+		// Check if notice has expired
+		if notices[i].EndTime.Before(now) && notices[i].Status == field.Status("active") {
+			// Update status in database
+			if err := s.db.Model(&base_models.Notice{}).Where("id = ?", notices[i].ID).Update("status", field.Status("inactive")).Error; err != nil {
+				return nil, fmt.Errorf("failed to update notice status: %v", err)
+			}
+			// Update status in memory
+			notices[i].Status = field.Status("inactive")
 		}
 	}
 

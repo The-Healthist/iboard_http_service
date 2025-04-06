@@ -70,6 +70,7 @@ func (s *NoticeService) Get(query map[string]interface{}, paginate map[string]in
 		return nil, base_models.PaginationResult{}, err
 	}
 
+	now := time.Now()
 	for i := range notices {
 		if notices[i].StartTime.IsZero() {
 			notices[i].StartTime = time.Date(2024, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
@@ -82,6 +83,16 @@ func (s *NoticeService) Get(query map[string]interface{}, paginate map[string]in
 		}
 		if notices[i].FileType == "" {
 			notices[i].FileType = field.FileTypePdf
+		}
+
+		// Check if notice has expired
+		if notices[i].EndTime.Before(now) && notices[i].Status == field.Status("active") {
+			// Update status in database
+			if err := s.db.Model(&base_models.Notice{}).Where("id = ?", notices[i].ID).Update("status", field.Status("inactive")).Error; err != nil {
+				return nil, base_models.PaginationResult{}, err
+			}
+			// Update status in memory
+			notices[i].Status = field.Status("inactive")
 		}
 	}
 

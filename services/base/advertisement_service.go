@@ -80,6 +80,7 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 		return nil, base_models.PaginationResult{}, err
 	}
 
+	now := time.Now()
 	for i := range advertisements {
 		if advertisements[i].StartTime.IsZero() {
 			advertisements[i].StartTime = time.Date(2024, 12, 23, 16, 30, 34, 156000000, time.FixedZone("CST", 8*3600))
@@ -89,6 +90,16 @@ func (s *AdvertisementService) Get(query map[string]interface{}, paginate map[st
 		}
 		if advertisements[i].Status == "" {
 			advertisements[i].Status = field.Status("active")
+		}
+
+		// Check if advertisement has expired
+		if advertisements[i].EndTime.Before(now) && advertisements[i].Status == field.Status("active") {
+			// Update status in database
+			if err := s.db.Model(&base_models.Advertisement{}).Where("id = ?", advertisements[i].ID).Update("status", field.Status("inactive")).Error; err != nil {
+				return nil, base_models.PaginationResult{}, err
+			}
+			// Update status in memory
+			advertisements[i].Status = field.Status("inactive")
 		}
 	}
 

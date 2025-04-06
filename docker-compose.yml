@@ -6,6 +6,7 @@ services:
     ports:
       - "10031:10031"
     environment:
+      - TZ=Asia/Shanghai
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_USER=root
@@ -31,6 +32,7 @@ services:
     ports:
       - "3308:3306"
     environment:
+      - TZ=Asia/Shanghai
       - MYSQL_ROOT_PASSWORD=1090119your
       - MYSQL_DATABASE=iboard_db
     volumes:
@@ -46,6 +48,8 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       - redis_data:/data
     networks:
