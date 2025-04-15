@@ -42,7 +42,7 @@ Write-Host "Creating backup of current files..."
 $cmd = @"
 cd $REMOTE_DIR && 
 mkdir -p backup && 
-cp -r services/base/device_service.go services/base/notice_service.go services/base/advertisement_service.go backup/ && 
+cp -r services/base/device_service.go services/base/notice_service.go services/base/advertisement_service.go services/base/notice_sync_service.go backup/ && 
 echo 'Backup created'
 "@
 $result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
@@ -68,6 +68,7 @@ Write-Host "Copying modified service files..."
 Copy-Item "services/base/device_service.go" -Destination "temp/services/base/" -Force
 Copy-Item "services/base/notice_service.go" -Destination "temp/services/base/" -Force
 Copy-Item "services/base/advertisement_service.go" -Destination "temp/services/base/" -Force
+Copy-Item "services/base/notice_sync_service.go" -Destination "temp/services/base/" -Force
 
 # 6. Create update package
 Write-Host "Creating update archive..."
@@ -86,10 +87,45 @@ $cmd = @"
 cd $REMOTE_DIR && 
 tar -xzf update.tar.gz && 
 rm update.tar.gz && 
-ls -l services/base/device_service.go services/base/notice_service.go services/base/advertisement_service.go
+ls -l services/base/device_service.go services/base/notice_service.go services/base/advertisement_service.go services/base/notice_sync_service.go
 "@
 $result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
 if (-not $?) { Handle-Error "Failed to extract files" }
+
+# 8.5. Run database migration to fix the password field in buildings table
+Write-Host "Fixing the password field in buildings table..."
+
+# Create a simple SQL file
+$sqlContent = @"
+SET FOREIGN_KEY_CHECKS=0;
+ALTER TABLE buildings MODIFY COLUMN password varchar(255) NULL;
+SET FOREIGN_KEY_CHECKS=1;
+"@
+
+# Save SQL to a temporary file with UTF-8 encoding
+$tempSqlFile = "fix_password.sql"
+$sqlContent | Out-File -FilePath $tempSqlFile -Encoding utf8 -Force
+
+# Upload the SQL file to remote server
+Write-Host "Uploading SQL file to server..."
+$uploadResult = echo $REMOTE_PASS | scp -o StrictHostKeyChecking=no $tempSqlFile "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/"
+if (-not $?) {
+  Remove-Item -Path $tempSqlFile -Force
+  Handle-Error "Failed to upload SQL file"
+}
+
+# Execute SQL file on remote server
+Write-Host "Executing database migration..."
+$sqlCmd = "cd $REMOTE_DIR && docker-compose exec -T mysql mysql -u root -p$DB_PASS $DB_NAME < $tempSqlFile && rm $tempSqlFile"
+$sqlResult = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $sqlCmd
+if (-not $?) {
+  Remove-Item -Path $tempSqlFile -Force
+  Handle-Error "Failed to execute database migration"
+}
+
+# Clean up local temporary file
+Remove-Item -Path $tempSqlFile -Force
+Write-Host "Database migration completed - buildings.password field is now nullable"
 
 # 9. Build and start backend service
 Write-Host "Building and starting backend service..."
@@ -117,6 +153,17 @@ curl -s http://localhost:10031/health || echo 'Service not responding'
 $result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
 if ($result -match "Service not responding") { Handle-Error "Service failed to start properly" }
 
+# 11.5 Check notice sync logs to verify it's working
+Write-Host "Checking notice sync service logs..."
+$cmd = "cd $REMOTE_DIR && docker-compose logs --tail=50 backend | grep NoticeSyncService"
+$result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
+if ($result -match "NoticeSyncService") {
+  Write-Host "Notice sync service is running properly" -ForegroundColor Green
+}
+else {
+  Write-Host "Notice sync service may not be initialized yet, please check logs manually" -ForegroundColor Yellow
+}
+
 # 12. Clean up
 Write-Host "Cleaning up temporary files..."
 Remove-Item -Recurse -Force "temp"
@@ -135,6 +182,8 @@ Write-Host "1. Backend service updated with bug fixes for advertisement and noti
 Write-Host "2. Service port remains: 10031"
 Write-Host "3. Using existing MySQL and Redis services"
 Write-Host "4. Backup of original files created in $REMOTE_DIR/backup"
+Write-Host "5. Buildings table's password field fixed to be nullable - can now create buildings without password"
+Write-Host "6. Notice sync service optimized with improved cleanup for old notices"
 Write-Host ""
 Write-Host "To view logs use: docker-compose logs -f backend"
 Write-Host "To restart service use: docker-compose restart backend"

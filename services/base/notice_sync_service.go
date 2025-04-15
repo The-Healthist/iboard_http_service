@@ -471,15 +471,13 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 
 	fmt.Printf("[NoticeSyncService] Concurrent processing completed for building %d\n", buildingID)
 
-	// Process deletions
+	// Process deletions - Always check for notices to clean up
 	deleteCount := 0
-	if len(changeNotices) > 0 {
-		var err error
-		deleteCount, err = s.processDeletedNotices(buildingID, existingNotices, processedMD5s, &failedNotices)
-		if err != nil {
-			return nil, fmt.Errorf("failed to process deletions: %v", err)
-		}
+	deleteCount, err = s.processDeletedNotices(buildingID, existingNotices, processedMD5s, &failedNotices)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process deletions: %v", err)
 	}
+	fmt.Printf("[NoticeSyncService] Processed deletions for building %d: %d notices deleted\n", buildingID, deleteCount)
 
 	// Update cache with new IDs
 	if err := s.setCachedNoticeIDs(ctx, buildingID, newIDs); err != nil {
@@ -711,25 +709,41 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 	})
 }
 
-// 8. processDeletedNotices
-func (s *NoticeSyncService) processDeletedNotices(buildingID uint, existingNotices []base_models.Notice, oldSystemMD5Map map[string]bool, failedNotices *[]string) (int, error) {
+// processDeletedNotices handles removing notices that are no longer in the old system
+func (s *NoticeSyncService) processDeletedNotices(buildingID uint, existingNotices []base_models.Notice, processedMD5s map[string]bool, failedNotices *[]string) (int, error) {
 	deleteCount := 0
+	fmt.Printf("[NoticeSyncService] Starting to process deletions for building %d, checking %d existing notices\n",
+		buildingID, len(existingNotices))
 
-	for _, existingNotice := range existingNotices {
-		if existingNotice.File == nil {
-			continue
+	// Filter out notices that don't have files or aren't iSmart notices
+	var noticesToCheck []base_models.Notice
+	for _, notice := range existingNotices {
+		if notice.File != nil && notice.IsIsmartNotice {
+			noticesToCheck = append(noticesToCheck, notice)
 		}
+	}
 
-		if !oldSystemMD5Map[existingNotice.File.Md5] {
+	fmt.Printf("[NoticeSyncService] Found %d iSmart notices with files to check for building %d\n",
+		len(noticesToCheck), buildingID)
+
+	for _, existingNotice := range noticesToCheck {
+		// If the notice's MD5 is not in the processed list, it means this notice is not in the old system anymore
+		if !processedMD5s[existingNotice.File.Md5] {
+			fmt.Printf("[NoticeSyncService] Notice ID %d with MD5 %s not found in old system, will be cleaned up\n",
+				existingNotice.ID, existingNotice.File.Md5)
+
 			// Start transaction for deletion
 			tx := s.db.Begin()
 
 			// Unbind notice from building
-			if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ? AND building_id = ?", existingNotice.ID, buildingID).Error; err != nil {
+			if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ? AND building_id = ?",
+				existingNotice.ID, buildingID).Error; err != nil {
 				tx.Rollback()
 				*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to unbind notice ID %d: %v", existingNotice.ID, err))
 				continue
 			}
+
+			fmt.Printf("[NoticeSyncService] Unbound notice ID %d from building %d\n", existingNotice.ID, buildingID)
 
 			// Check if notice is bound to other buildings
 			var buildingCount int64
@@ -740,6 +754,11 @@ func (s *NoticeSyncService) processDeletedNotices(buildingID uint, existingNotic
 			}
 
 			if buildingCount == 0 {
+				fmt.Printf("[NoticeSyncService] Notice ID %d has no other building bindings, will be deleted\n", existingNotice.ID)
+
+				// Save file ID for later check
+				fileID := existingNotice.FileID
+
 				// Delete notice if no other bindings exist
 				if err := tx.Delete(&existingNotice).Error; err != nil {
 					tx.Rollback()
@@ -747,22 +766,35 @@ func (s *NoticeSyncService) processDeletedNotices(buildingID uint, existingNotic
 					continue
 				}
 
-				// Check if file is used by other notices
-				var fileCount int64
-				if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", existingNotice.FileID).Count(&fileCount).Error; err != nil {
-					tx.Rollback()
-					*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to check file references for notice ID %d: %v", existingNotice.ID, err))
-					continue
-				}
+				fmt.Printf("[NoticeSyncService] Deleted notice ID %d\n", existingNotice.ID)
 
-				if fileCount == 0 {
-					// Delete file if no other notices use it
-					if err := tx.Delete(&existingNotice.File).Error; err != nil {
+				// Check if file is used by other notices
+				if fileID != nil {
+					var fileCount int64
+					if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", *fileID).Count(&fileCount).Error; err != nil {
 						tx.Rollback()
-						*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to delete file for notice ID %d: %v", existingNotice.ID, err))
+						*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to check file references for notice ID %d: %v", existingNotice.ID, err))
 						continue
 					}
+
+					if fileCount == 0 {
+						fmt.Printf("[NoticeSyncService] File ID %d has no other notice references, will be deleted\n", *fileID)
+
+						// Delete file if no other notices use it
+						if err := tx.Delete(&base_models.File{}, *fileID).Error; err != nil {
+							tx.Rollback()
+							*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to delete file for notice ID %d: %v", existingNotice.ID, err))
+							continue
+						}
+
+						fmt.Printf("[NoticeSyncService] Deleted file ID %d\n", *fileID)
+					} else {
+						fmt.Printf("[NoticeSyncService] File ID %d has %d other notice references, keeping file\n", *fileID, fileCount)
+					}
 				}
+			} else {
+				fmt.Printf("[NoticeSyncService] Notice ID %d has %d other building bindings, keeping notice\n",
+					existingNotice.ID, buildingCount)
 			}
 
 			if err := tx.Commit().Error; err != nil {
@@ -774,6 +806,8 @@ func (s *NoticeSyncService) processDeletedNotices(buildingID uint, existingNotic
 		}
 	}
 
+	fmt.Printf("[NoticeSyncService] Deletion process completed for building %d: %d notices deleted\n",
+		buildingID, deleteCount)
 	return deleteCount, nil
 }
 
