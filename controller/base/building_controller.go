@@ -97,6 +97,7 @@ func (c *BuildingController) Create() {
 		Name     string `json:"name" binding:"required"`
 		IsmartID string `json:"ismartId" binding:"required"`
 		Remark   string `json:"remark"`
+		Location string `json:"location"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -111,6 +112,7 @@ func (c *BuildingController) Create() {
 		Name:     form.Name,
 		IsmartID: form.IsmartID,
 		Remark:   form.Remark,
+		Location: form.Location,
 	}
 
 	if err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Create(building); err != nil {
@@ -164,6 +166,13 @@ func (c *BuildingController) Get() {
 		return
 	}
 
+	// 确保每个建筑的字段都被正确初始化
+	for i := range buildings {
+		if buildings[i].Location == "" {
+			buildings[i].Location = "" // 确保即使是空字符串也会被序列化
+		}
+	}
+
 	c.Ctx.JSON(200, gin.H{
 		"data":       buildings,
 		"pagination": paginationResult,
@@ -176,6 +185,7 @@ func (c *BuildingController) Update() {
 		Name     string `json:"name"`
 		IsmartID string `json:"ismartId"`
 		Remark   string `json:"remark"`
+		Location string `json:"location"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -193,6 +203,7 @@ func (c *BuildingController) Update() {
 	if form.Remark != "" {
 		updates["remark"] = form.Remark
 	}
+	updates["location"] = form.Location
 
 	if err := c.Container.GetService("building").(base_services.InterfaceBuildingService).Update(form.ID, updates); err != nil {
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})

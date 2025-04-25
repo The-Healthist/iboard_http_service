@@ -40,7 +40,8 @@ func (s *BuildingService) Get(query map[string]interface{}, paginate map[string]
 	db := s.db.Model(&base_models.Building{})
 
 	if search, ok := query["search"].(string); ok && search != "" {
-		db = db.Where("name LIKE ? OR ismart_id LIKE ? OR remark LIKE ?",
+		db = db.Where("name LIKE ? OR ismart_id LIKE ? OR remark LIKE ? OR location LIKE ?",
+			"%"+search+"%",
 			"%"+search+"%",
 			"%"+search+"%",
 			"%"+search+"%",
@@ -61,7 +62,7 @@ func (s *BuildingService) Get(query map[string]interface{}, paginate map[string]
 		db = db.Order("created_at ASC")
 	}
 
-	if err := db.Select("id, created_at, updated_at, deleted_at, name, ismart_id, remark").
+	if err := db.Select("id, created_at, updated_at, deleted_at, name, ismart_id, remark, location").
 		Limit(pageSize).Offset(offset).
 		Find(&buildings).Error; err != nil {
 		return nil, base_models.PaginationResult{}, err
