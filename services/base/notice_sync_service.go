@@ -43,7 +43,17 @@ const (
 	minBuildingWorkers       = 1    // min building worker
 	maxBuildingWorkerPerCore = 20   // max building worker per core
 	buildingWorkerLoadFactor = 0.75 // building worker load factor (0-1)
+
+	// Redis cache keys
+	syncedNoticeIDsPrefix = "building_synced_notice_ids" // 用于存储上次同步的旧系统通知ID和MD5
+	syncedNoticeMD5Prefix = "building_synced_notice_md5" // 用于存储上次同步的通知MD5列表
 )
+
+// 定义同步通知信息结构体
+type SyncedNoticeInfo struct {
+	ID  int    `json:"id"`
+	MD5 string `json:"md5"`
+}
 
 func getNoticeSyncInterval() time.Duration {
 	interval := os.Getenv("NOTICE_SYNC_INTERVAL")
@@ -267,24 +277,58 @@ func (s *NoticeSyncService) updateCachedNoticeCount(ctx context.Context, buildin
 	return s.redis.Set(ctx, key, count, getNoticeSyncCountCacheDuration()).Err()
 }
 
-// 6. SyncBuildingNotices
+// 修改获取上次同步的旧系统通知信息函数
+func (s *NoticeSyncService) getSyncedNoticeInfos(ctx context.Context, buildingID uint) ([]SyncedNoticeInfo, error) {
+	key := fmt.Sprintf("%s:%d", syncedNoticeIDsPrefix, buildingID)
+	val, err := s.redis.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return []SyncedNoticeInfo{}, nil // 返回空数组而非nil，表示没有缓存数据
+	} else if err != nil {
+		return nil, err
+	}
+
+	var infos []SyncedNoticeInfo
+	if err := json.Unmarshal([]byte(val), &infos); err != nil {
+		return nil, err
+	}
+	return infos, nil
+}
+
+// 修改保存本次同步的旧系统通知信息函数
+func (s *NoticeSyncService) setSyncedNoticeInfos(ctx context.Context, buildingID uint, infos []SyncedNoticeInfo) error {
+	key := fmt.Sprintf("%s:%d", syncedNoticeIDsPrefix, buildingID)
+	jsonInfos, err := json.Marshal(infos)
+	if err != nil {
+		return err
+	}
+	return s.redis.Set(ctx, key, string(jsonInfos), getNoticeSyncCacheDuration()).Err()
+}
+
+// 修改SyncBuildingNotices函数
 func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
 	ctx := context.Background()
 
-	// Get building info from cache first
+	// 获取建筑信息
 	building, err := s.getCachedBuilding(ctx, buildingID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get building: %v", err)
 	}
 
-	// Get cached notice IDs and log them
+	// 获取缓存的通知ID
 	cachedIDs, err := s.getCachedNoticeIDs(ctx, buildingID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cached notice IDs: %v", err)
 	}
 	fmt.Printf("[NoticeSyncService] Redis cached IDs for building %d: %v\n", buildingID, cachedIDs)
 
-	// Get existing iSmart notices with a single query including all needed relations
+	// 获取上次同步的通知MD5列表
+	syncedMD5s, err := s.getSyncedNoticeMD5s(ctx, buildingID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get synced notice MD5s: %v", err)
+	}
+	fmt.Printf("[NoticeSyncService] Last synced MD5 count for building %d: %d\n", buildingID, len(syncedMD5s))
+
+	// 获取现有的iSmart通知
 	var existingNotices []base_models.Notice
 	if err := s.db.Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
 		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", buildingID, true).
@@ -293,7 +337,15 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	}
 	fmt.Printf("[NoticeSyncService] Found %d existing notices in database\n", len(existingNotices))
 
-	// Request notices from old system
+	// 创建现有通知的MD5映射
+	existingMD5Map := make(map[string]base_models.Notice)
+	for _, notice := range existingNotices {
+		if notice.File != nil {
+			existingMD5Map[notice.File.Md5] = notice
+		}
+	}
+
+	// 请求旧系统的通知
 	url := "https://uqf0jqfm77.execute-api.ap-east-1.amazonaws.com/prod/v1/building_board/building-notices"
 	reqBody := struct {
 		BlgID string `json:"blg_id"`
@@ -317,14 +369,14 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		return nil, fmt.Errorf("failed to decode response: %v", err)
 	}
 
-	// Extract and log new notice IDs from old system
+	// 提取旧系统通知ID
 	newIDs := make([]int, len(oldNotices))
 	for i, notice := range oldNotices {
 		newIDs[i] = notice.ID
 	}
 	fmt.Printf("[NoticeSyncService] Old system IDs for building %d: %v\n", buildingID, newIDs)
 
-	// Check if we need to force sync due to notice count mismatch
+	// 检查是否需要强制同步
 	totalIsmartNotices, err := s.getCachedNoticeCount(ctx, buildingID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cached notice count: %v", err)
@@ -333,10 +385,10 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	fmt.Printf("[NoticeSyncService] Database has %d ismart notices, old system has %d notices\n",
 		totalIsmartNotices, len(oldNotices))
 
-	// Force sync if notice counts don't match
+	// 如果通知数量不匹配，强制同步
 	if totalIsmartNotices != int64(len(oldNotices)) {
 		fmt.Printf("[NoticeSyncService] Notice count mismatch detected, forcing full sync\n")
-		// Clear caches to force sync
+		// 清除缓存以强制同步
 		if err := s.redis.Del(ctx, fmt.Sprintf("building_notice_ids:%d", buildingID)).Err(); err != nil {
 			return nil, fmt.Errorf("failed to clear notice IDs cache: %v", err)
 		}
@@ -346,50 +398,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		cachedIDs = nil
 	}
 
-	// If cached IDs exist and match new IDs, skip processing
-	if len(cachedIDs) > 0 {
-		match := len(cachedIDs) == len(newIDs)
-		if match {
-			for i := range cachedIDs {
-				if cachedIDs[i] != newIDs[i] {
-					match = false
-					break
-				}
-			}
-			if match && totalIsmartNotices == int64(len(oldNotices)) {
-				fmt.Printf("[NoticeSyncService] No changes detected for building %d, skipping sync\n", buildingID)
-				var hasSyncNotices []int
-				for _, notice := range existingNotices {
-					if notice.File != nil {
-						hasSyncNotices = append(hasSyncNotices, int(notice.ID))
-					}
-				}
-				return gin.H{
-					"message":           "No changes detected",
-					"successCount":      0,
-					"hasSyncedCount":    len(cachedIDs),
-					"deleteCount":       0,
-					"failedNotices":     []string{},
-					"totalProcessed":    len(oldNotices),
-					"has_sync_notices":  hasSyncNotices,
-					"need_sync_notices": []int{},
-					"change_notices":    []int{},
-				}, nil
-			}
-		}
-	}
-
-	// Create MD5 map for existing notices
-	existingMD5Map := make(map[string]bool)
-	existingMD5ToNoticeID := make(map[string]uint)
-	for _, notice := range existingNotices {
-		if notice.File != nil {
-			existingMD5Map[notice.File.Md5] = true
-			existingMD5ToNoticeID[notice.File.Md5] = notice.ID
-		}
-	}
-
-	// Calculate optimal worker count
+	// 计算最佳工作线程数
 	workers := calculateWorkerCount(len(oldNotices))
 	resultChan := make(chan processResult, len(oldNotices))
 	semaphore := make(chan struct{}, workers)
@@ -397,15 +406,15 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	fmt.Printf("[NoticeSyncService] Starting concurrent processing with %d workers for %d notices\n",
 		workers, len(oldNotices))
 
-	// Process notices concurrently
+	// 并发处理通知，获取所有MD5值
 	for _, oldNotice := range oldNotices {
 		go func(notice OldSystemNotice) {
-			semaphore <- struct{}{}        // Acquire semaphore
-			defer func() { <-semaphore }() // Release semaphore
+			semaphore <- struct{}{}        // 获取信号量
+			defer func() { <-semaphore }() // 释放信号量
 
 			result := processResult{noticeID: notice.ID}
 
-			// Download and process file
+			// 下载并处理文件
 			fileResp, err := http.Get(notice.MessFile)
 			if err != nil {
 				result.error = fmt.Errorf("failed to download file: %v", err)
@@ -425,28 +434,17 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 			md5Str := hex.EncodeToString(md5Hash[:])
 			result.md5 = md5Str
 
-			// Check if file exists
-			if existingMD5Map[md5Str] {
-				result.success = true
-				result.syncRequired = false
-			} else {
-				result.syncRequired = true
-				if err := s.processNotice(buildingID, notice, fileContent, claims); err != nil {
-					result.error = err
-				} else {
-					result.success = true
-				}
-			}
-
+			// 先不进行处理，只收集MD5
+			result.success = true
+			result.syncRequired = false
 			resultChan <- result
 		}(oldNotice)
 	}
 
-	// Collect results
-	var successCount, hasSyncedCount int
+	// 收集所有新通知的MD5值
+	var newMD5s []string
 	var failedNotices []string
-	var needSyncNotices, hasSyncNotices, changeNotices []int
-	processedMD5s := make(map[string]bool)
+	md5ToNoticeID := make(map[string]int)
 
 	for i := 0; i < len(oldNotices); i++ {
 		result := <-resultChan
@@ -455,36 +453,218 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 			continue
 		}
 
-		processedMD5s[result.md5] = true
-		if result.syncRequired {
-			if result.success {
-				successCount++
-				needSyncNotices = append(needSyncNotices, result.noticeID)
+		newMD5s = append(newMD5s, result.md5)
+		md5ToNoticeID[result.md5] = result.noticeID
+	}
+
+	fmt.Printf("[NoticeSyncService] Collected %d MD5 values from old system\n", len(newMD5s))
+
+	// 如果缓存的MD5列表存在且与新MD5列表完全匹配，跳过处理
+	if len(syncedMD5s) > 0 && len(syncedMD5s) == len(newMD5s) {
+		// 创建MD5集合用于快速查找
+		syncedMD5Set := make(map[string]bool)
+		for _, md5 := range syncedMD5s {
+			syncedMD5Set[md5] = true
+		}
+
+		allMatch := true
+		for _, md5 := range newMD5s {
+			if !syncedMD5Set[md5] {
+				allMatch = false
+				break
 			}
-		} else {
-			hasSyncedCount++
-			if id, ok := existingMD5ToNoticeID[result.md5]; ok {
-				hasSyncNotices = append(hasSyncNotices, int(id))
+		}
+
+		if allMatch {
+			fmt.Printf("[NoticeSyncService] MD5 lists match exactly, skipping sync for building %d\n", buildingID)
+			var hasSyncNotices []int
+			for _, notice := range existingNotices {
+				if notice.File != nil {
+					hasSyncNotices = append(hasSyncNotices, int(notice.ID))
+				}
+			}
+
+			// 更新缓存的通知ID
+			if err := s.setCachedNoticeIDs(ctx, buildingID, newIDs); err != nil {
+				return nil, fmt.Errorf("failed to update cached notice IDs: %v", err)
+			}
+
+			return gin.H{
+				"message":           "No changes detected",
+				"successCount":      0,
+				"hasSyncedCount":    len(existingNotices),
+				"deleteCount":       0,
+				"failedNotices":     []string{},
+				"totalProcessed":    len(oldNotices),
+				"has_sync_notices":  hasSyncNotices,
+				"need_sync_notices": []int{},
+				"change_notices":    []int{},
+			}, nil
+		}
+	}
+
+	// 比较新旧MD5列表，找出需要添加和删除的通知
+
+	// 1. 找出需要删除的通知（在旧MD5列表中存在但在新MD5列表中不存在）
+	var md5sToDelete []string
+	if len(syncedMD5s) > 0 {
+		newMD5Set := make(map[string]bool)
+		for _, md5 := range newMD5s {
+			newMD5Set[md5] = true
+		}
+
+		for _, md5 := range syncedMD5s {
+			if !newMD5Set[md5] {
+				md5sToDelete = append(md5sToDelete, md5)
 			}
 		}
 	}
 
-	fmt.Printf("[NoticeSyncService] Concurrent processing completed for building %d\n", buildingID)
-
-	// Process deletions - Always check for notices to clean up
-	deleteCount := 0
-	deleteCount, err = s.processDeletedNotices(buildingID, existingNotices, processedMD5s, &failedNotices)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process deletions: %v", err)
+	// 2. 找出需要添加的通知（在新MD5列表中存在但在旧MD5列表中不存在或在现有通知中不存在）
+	var md5sToAdd []string
+	syncedMD5Set := make(map[string]bool)
+	for _, md5 := range syncedMD5s {
+		syncedMD5Set[md5] = true
 	}
-	fmt.Printf("[NoticeSyncService] Processed deletions for building %d: %d notices deleted\n", buildingID, deleteCount)
 
-	// Update cache with new IDs
+	for _, md5 := range newMD5s {
+		if !syncedMD5Set[md5] || existingMD5Map[md5].ID == 0 {
+			md5sToAdd = append(md5sToAdd, md5)
+		}
+	}
+
+	fmt.Printf("[NoticeSyncService] Found %d MD5s to delete and %d MD5s to add\n",
+		len(md5sToDelete), len(md5sToAdd))
+
+	// 处理需要删除的通知
+	deleteCount := 0
+	if len(md5sToDelete) > 0 {
+		for _, md5 := range md5sToDelete {
+			if notice, exists := existingMD5Map[md5]; exists {
+				// 解绑通知
+				if err := s.unbindNotice(buildingID, notice.ID, &failedNotices); err != nil {
+					fmt.Printf("[NoticeSyncService] Failed to unbind notice with MD5 %s: %v\n", md5, err)
+				} else {
+					deleteCount++
+				}
+			}
+		}
+	}
+
+	// 处理需要添加的通知
+	var successCount, hasSyncedCount int
+	var needSyncNotices, hasSyncNotices, changeNotices []int
+
+	if len(md5sToAdd) > 0 {
+		// 重新创建信号量和结果通道
+		addWorkers := calculateWorkerCount(len(md5sToAdd))
+		addResultChan := make(chan processResult, len(md5sToAdd))
+		addSemaphore := make(chan struct{}, addWorkers)
+
+		for _, md5 := range md5sToAdd {
+			noticeID := md5ToNoticeID[md5]
+
+			// 找到对应的旧系统通知
+			var oldNotice OldSystemNotice
+			for _, notice := range oldNotices {
+				if notice.ID == noticeID {
+					oldNotice = notice
+					break
+				}
+			}
+
+			if oldNotice.ID == 0 {
+				failedNotices = append(failedNotices, fmt.Sprintf("Could not find old notice for MD5 %s", md5))
+				continue
+			}
+
+			go func(notice OldSystemNotice, md5 string) {
+				addSemaphore <- struct{}{}
+				defer func() { <-addSemaphore }()
+
+				result := processResult{noticeID: notice.ID, md5: md5}
+
+				// 检查是否已存在相同MD5的通知
+				if existingNotice, exists := existingMD5Map[md5]; exists {
+					// 通知已存在，检查是否已绑定到当前建筑物
+					var count int64
+					if err := s.db.Table("notice_buildings").
+						Where("notice_id = ? AND building_id = ?", existingNotice.ID, buildingID).
+						Count(&count).Error; err != nil {
+						result.error = fmt.Errorf("failed to check notice binding: %v", err)
+					} else if count > 0 {
+						// 通知已绑定，无需操作
+						result.success = true
+						result.syncRequired = false
+						hasSyncNotices = append(hasSyncNotices, int(existingNotice.ID))
+						hasSyncedCount++
+					} else {
+						// 通知存在但未绑定，需要绑定
+						if err := s.db.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)",
+							existingNotice.ID, buildingID).Error; err != nil {
+							result.error = fmt.Errorf("failed to bind existing notice: %v", err)
+						} else {
+							result.success = true
+							result.syncRequired = true
+							needSyncNotices = append(needSyncNotices, int(existingNotice.ID))
+							successCount++
+						}
+					}
+				} else {
+					// 通知不存在，需要下载并处理
+					fileResp, err := http.Get(notice.MessFile)
+					if err != nil {
+						result.error = fmt.Errorf("failed to download file: %v", err)
+						addResultChan <- result
+						return
+					}
+					defer fileResp.Body.Close()
+
+					fileContent, err := io.ReadAll(fileResp.Body)
+					if err != nil {
+						result.error = fmt.Errorf("failed to read file content: %v", err)
+						addResultChan <- result
+						return
+					}
+
+					// 处理通知
+					if err := s.processNotice(buildingID, notice, fileContent, claims); err != nil {
+						result.error = err
+					} else {
+						result.success = true
+						result.syncRequired = true
+						needSyncNotices = append(needSyncNotices, notice.ID)
+						successCount++
+					}
+				}
+
+				addResultChan <- result
+			}(oldNotice, md5)
+		}
+
+		// 收集处理结果
+		for i := 0; i < len(md5sToAdd); i++ {
+			result := <-addResultChan
+			if result.error != nil {
+				failedNotices = append(failedNotices, fmt.Sprintf("Failed to process notice ID %d: %v", result.noticeID, result.error))
+			}
+		}
+	}
+
+	fmt.Printf("[NoticeSyncService] Sync completed for building %d: %d added, %d deleted\n",
+		buildingID, successCount, deleteCount)
+
+	// 更新缓存
 	if err := s.setCachedNoticeIDs(ctx, buildingID, newIDs); err != nil {
 		return nil, fmt.Errorf("failed to update cached notice IDs: %v", err)
 	}
 
-	// Update cached notice count after successful sync
+	// 更新同步的通知MD5列表
+	if err := s.setSyncedNoticeMD5s(ctx, buildingID, newMD5s); err != nil {
+		return nil, fmt.Errorf("failed to update synced notice MD5s: %v", err)
+	}
+
+	// 更新缓存的通知数量
 	newCount := int64(len(oldNotices))
 	if err := s.updateCachedNoticeCount(ctx, buildingID, newCount); err != nil {
 		fmt.Printf("[NoticeSyncService] Warning: failed to update cached notice count: %v\n", err)
@@ -501,6 +681,335 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		"need_sync_notices": needSyncNotices,
 		"change_notices":    changeNotices,
 	}, nil
+}
+
+// 添加新函数：获取上次同步的通知MD5列表
+func (s *NoticeSyncService) getSyncedNoticeMD5s(ctx context.Context, buildingID uint) ([]string, error) {
+	key := fmt.Sprintf("%s:%d", syncedNoticeMD5Prefix, buildingID)
+	val, err := s.redis.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return []string{}, nil // 返回空数组而非nil，表示没有缓存数据
+	} else if err != nil {
+		return nil, err
+	}
+
+	var md5s []string
+	if err := json.Unmarshal([]byte(val), &md5s); err != nil {
+		return nil, err
+	}
+	return md5s, nil
+}
+
+// 添加新函数：保存本次同步的通知MD5列表
+func (s *NoticeSyncService) setSyncedNoticeMD5s(ctx context.Context, buildingID uint, md5s []string) error {
+	key := fmt.Sprintf("%s:%d", syncedNoticeMD5Prefix, buildingID)
+	jsonMD5s, err := json.Marshal(md5s)
+	if err != nil {
+		return err
+	}
+	return s.redis.Set(ctx, key, string(jsonMD5s), getNoticeSyncCacheDuration()).Err()
+}
+
+// 添加新函数：解绑通知
+func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedNotices *[]string) error {
+	// 开始事务
+	tx := s.db.Begin()
+
+	// 解绑通知与建筑物
+	if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ? AND building_id = ?",
+		noticeID, buildingID).Error; err != nil {
+		tx.Rollback()
+		*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to unbind notice ID %d: %v", noticeID, err))
+		return err
+	}
+
+	fmt.Printf("[NoticeSyncService] Unbound notice ID %d from building %d\n", noticeID, buildingID)
+
+	// 检查通知是否绑定到其他建筑物
+	var buildingCount int64
+	if err := tx.Table("notice_buildings").Where("notice_id = ?", noticeID).Count(&buildingCount).Error; err != nil {
+		tx.Rollback()
+		*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to check notice bindings for ID %d: %v", noticeID, err))
+		return err
+	}
+
+	if buildingCount == 0 {
+		fmt.Printf("[NoticeSyncService] Notice ID %d has no other building bindings, will be deleted\n", noticeID)
+
+		// 获取通知信息，包括文件ID
+		var notice base_models.Notice
+		if err := tx.First(&notice, noticeID).Error; err != nil {
+			tx.Rollback()
+			*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to get notice ID %d: %v", noticeID, err))
+			return err
+		}
+
+		// 保存文件ID以便后续检查
+		fileID := notice.FileID
+
+		// 删除通知
+		if err := tx.Delete(&notice).Error; err != nil {
+			tx.Rollback()
+			*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to delete notice ID %d: %v", noticeID, err))
+			return err
+		}
+
+		fmt.Printf("[NoticeSyncService] Deleted notice ID %d\n", noticeID)
+
+		// 检查文件是否被其他通知使用
+		if fileID != nil {
+			var fileCount int64
+			if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", *fileID).Count(&fileCount).Error; err != nil {
+				tx.Rollback()
+				*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to check file references for notice ID %d: %v", noticeID, err))
+				return err
+			}
+
+			if fileCount == 0 {
+				fmt.Printf("[NoticeSyncService] File ID %d has no other notice references, will be deleted\n", *fileID)
+
+				// 删除文件
+				if err := tx.Delete(&base_models.File{}, *fileID).Error; err != nil {
+					tx.Rollback()
+					*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to delete file for notice ID %d: %v", noticeID, err))
+					return err
+				}
+
+				fmt.Printf("[NoticeSyncService] Deleted file ID %d\n", *fileID)
+			} else {
+				fmt.Printf("[NoticeSyncService] File ID %d has %d other notice references, keeping file\n", *fileID, fileCount)
+			}
+		}
+	} else {
+		fmt.Printf("[NoticeSyncService] Notice ID %d has %d other building bindings, keeping notice\n",
+			noticeID, buildingCount)
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to commit unbind for notice ID %d: %v", noticeID, err))
+		return err
+	}
+
+	return nil
+}
+
+// 修改clearAllCaches函数，添加对同步MD5缓存的清除
+func (s *NoticeSyncService) clearAllCaches(ctx context.Context) error {
+	// 获取所有建筑物
+	var buildings []base_models.Building
+	if err := s.db.Find(&buildings).Error; err != nil {
+		return fmt.Errorf("failed to get buildings: %v", err)
+	}
+
+	// 清除每个建筑物的缓存
+	for _, building := range buildings {
+		// 清除通知ID缓存
+		idKey := fmt.Sprintf("building_notice_ids:%d", building.ID)
+		if err := s.redis.Del(ctx, idKey).Err(); err != nil {
+			fmt.Printf("[NoticeSyncService] Warning: failed to clear notice IDs cache for building %d: %v\n", building.ID, err)
+		}
+
+		// 清除通知数量缓存
+		countKey := fmt.Sprintf("building_ismart_notice_count:%d", building.ID)
+		if err := s.redis.Del(ctx, countKey).Err(); err != nil {
+			fmt.Printf("[NoticeSyncService] Warning: failed to clear notice count cache for building %d: %v\n", building.ID, err)
+		}
+
+		// 清除建筑物缓存
+		buildingKey := fmt.Sprintf("building:%d", building.ID)
+		if err := s.redis.Del(ctx, buildingKey).Err(); err != nil {
+			fmt.Printf("[NoticeSyncService] Warning: failed to clear building cache for building %d: %v\n", building.ID, err)
+		}
+
+		// 清除同步的通知MD5缓存
+		syncedMD5Key := fmt.Sprintf("%s:%d", syncedNoticeMD5Prefix, building.ID)
+		if err := s.redis.Del(ctx, syncedMD5Key).Err(); err != nil {
+			fmt.Printf("[NoticeSyncService] Warning: failed to clear synced notice MD5s cache for building %d: %v\n", building.ID, err)
+		}
+	}
+
+	fmt.Println("[NoticeSyncService] All caches cleared successfully")
+	return nil
+}
+
+// 修改ManualSyncBuildingNotices函数
+func (s *NoticeSyncService) ManualSyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
+	// 这里直接调用SyncBuildingNotices，但先清除缓存以强制同步
+	ctx := context.Background()
+
+	// 清除缓存
+	idKey := fmt.Sprintf("building_notice_ids:%d", buildingID)
+	if err := s.redis.Del(ctx, idKey).Err(); err != nil {
+		return nil, fmt.Errorf("failed to clear notice IDs cache: %v", err)
+	}
+
+	countKey := fmt.Sprintf("building_ismart_notice_count:%d", buildingID)
+	if err := s.redis.Del(ctx, countKey).Err(); err != nil {
+		return nil, fmt.Errorf("failed to clear notice count cache: %v", err)
+	}
+
+	syncedMD5Key := fmt.Sprintf("%s:%d", syncedNoticeMD5Prefix, buildingID)
+	if err := s.redis.Del(ctx, syncedMD5Key).Err(); err != nil {
+		return nil, fmt.Errorf("failed to clear synced notice MD5s cache: %v", err)
+	}
+
+	// 调用同步函数
+	return s.SyncBuildingNotices(buildingID, claims)
+}
+
+// 10. StartSyncScheduler
+func (s *NoticeSyncService) StartSyncScheduler(ctx context.Context) {
+	syncInterval := getNoticeSyncInterval()
+	ticker := time.NewTicker(syncInterval)
+	countdownTicker := time.NewTicker(1 * time.Minute)
+	fmt.Println("[NoticeSyncService] Scheduler started")
+
+	// Clear all caches before starting
+	if err := s.clearAllCaches(ctx); err != nil {
+		fmt.Printf("[NoticeSyncService] Warning: failed to clear caches on start: %v\n", err)
+	}
+
+	go func() {
+		// Create admin claims for sync
+		adminClaims := jwt.MapClaims{
+			"id":      float64(1),
+			"isAdmin": true,
+			"email":   "admin@example.com",
+		}
+
+		// 立即执行一次同步
+		fmt.Println("[NoticeSyncService] Running initial sync...")
+		s.runSync(adminClaims)
+		nextSync := time.Now().Add(syncInterval)
+
+		for {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				countdownTicker.Stop()
+				fmt.Println("[NoticeSyncService] Scheduler stopped")
+				return
+			case <-countdownTicker.C:
+				remaining := time.Until(nextSync).Round(time.Minute)
+				fmt.Printf("[NoticeSyncService] Next sync in %d minutes\n", int(remaining.Minutes()))
+			case <-ticker.C:
+				fmt.Println("[NoticeSyncService] Running scheduled sync...")
+				s.runSync(adminClaims)
+				nextSync = time.Now().Add(syncInterval)
+			}
+		}
+	}()
+}
+
+// 11. runSync
+func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
+	// Get all buildings
+	var buildings []base_models.Building
+	if err := s.db.Find(&buildings).Error; err != nil {
+		fmt.Printf("[NoticeSyncService] Failed to get buildings: %v\n", err)
+		return
+	}
+
+	buildingCount := len(buildings)
+	fmt.Printf("[NoticeSyncService] Found %d buildings to sync\n", buildingCount)
+
+	// Get number of CPU cores
+	cpuCores := runtime.NumCPU()
+
+	// Calculate optimal number of building workers based on CPU cores
+	maxBuildingWorkers := calculateBuildingWorkers(buildingCount, cpuCores)
+
+	fmt.Printf("[NoticeSyncService] System has %d CPU cores, using %d concurrent building workers\n",
+		cpuCores, maxBuildingWorkers)
+
+	// Create a wait group to wait for all goroutines to finish
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, maxBuildingWorkers)
+
+	// Create a channel for collecting results
+	resultChan := make(chan struct {
+		buildingID uint
+		name       string
+		result     gin.H
+		err        error
+	}, buildingCount)
+
+	// Start sync for each building concurrently
+	for _, building := range buildings {
+		wg.Add(1)
+		go func(b base_models.Building) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			fmt.Printf("[NoticeSyncService] Starting sync for building %d (%s)\n", b.ID, b.Name)
+			result, err := s.SyncBuildingNotices(b.ID, adminClaims)
+
+			// Send result to channel
+			resultChan <- struct {
+				buildingID uint
+				name       string
+				result     gin.H
+				err        error
+			}{
+				buildingID: b.ID,
+				name:       b.Name,
+				result:     result,
+				err:        err,
+			}
+		}(building)
+	}
+
+	// Start a goroutine to close result channel when all syncs are done
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Process results as they come in
+	for res := range resultChan {
+		if res.err != nil {
+			fmt.Printf("[NoticeSyncService] Failed to sync notices for building %d (%s): %v\n",
+				res.buildingID, res.name, res.err)
+			continue
+		}
+
+		// Consolidated statistics output
+		fmt.Printf("[NoticeSyncService] Sync completed for building %d (%s):\n", res.buildingID, res.name)
+		fmt.Printf("[NoticeSyncService]     - Total to process: %d\n", res.result["totalProcessed"])
+		fmt.Printf("[NoticeSyncService]     - Successfully processed: %d\n", res.result["successCount"])
+		fmt.Printf("[NoticeSyncService]     - Already synced: %d\n", res.result["hasSyncedCount"])
+		fmt.Printf("[NoticeSyncService]     - Failed: %d\n", len(res.result["failedNotices"].([]string)))
+		fmt.Printf("[NoticeSyncService]     - To be deleted: %d\n", res.result["deleteCount"])
+
+		// Only show detailed IDs if there are changes
+		needSync := res.result["need_sync_notices"].([]int)
+		hasSync := res.result["has_sync_notices"].([]int)
+		changes := res.result["change_notices"].([]int)
+
+		if len(needSync) > 0 {
+			fmt.Printf("[NoticeSyncService]     - Need sync: %v\n", needSync)
+		}
+		if len(hasSync) > 0 {
+			fmt.Printf("[NoticeSyncService]     - Has sync: %v\n", hasSync)
+		}
+		if len(changes) > 0 {
+			fmt.Printf("[NoticeSyncService]     - Changes: %v\n", changes)
+		}
+
+		// Only show failed notices if there are any
+		failedNotices := res.result["failedNotices"].([]string)
+		if len(failedNotices) > 0 {
+			fmt.Printf("[NoticeSyncService]     - Failed notices:\n")
+			for _, notice := range failedNotices {
+				fmt.Printf("[NoticeSyncService]         * %s\n", notice)
+			}
+		}
+		fmt.Println() // Add a blank line between buildings
+	}
 }
 
 // processNotice handles the processing of a single notice
@@ -709,108 +1218,6 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 	})
 }
 
-// processDeletedNotices handles removing notices that are no longer in the old system
-func (s *NoticeSyncService) processDeletedNotices(buildingID uint, existingNotices []base_models.Notice, processedMD5s map[string]bool, failedNotices *[]string) (int, error) {
-	deleteCount := 0
-	fmt.Printf("[NoticeSyncService] Starting to process deletions for building %d, checking %d existing notices\n",
-		buildingID, len(existingNotices))
-
-	// Filter out notices that don't have files or aren't iSmart notices
-	var noticesToCheck []base_models.Notice
-	for _, notice := range existingNotices {
-		if notice.File != nil && notice.IsIsmartNotice {
-			noticesToCheck = append(noticesToCheck, notice)
-		}
-	}
-
-	fmt.Printf("[NoticeSyncService] Found %d iSmart notices with files to check for building %d\n",
-		len(noticesToCheck), buildingID)
-
-	for _, existingNotice := range noticesToCheck {
-		// If the notice's MD5 is not in the processed list, it means this notice is not in the old system anymore
-		if !processedMD5s[existingNotice.File.Md5] {
-			fmt.Printf("[NoticeSyncService] Notice ID %d with MD5 %s not found in old system, will be cleaned up\n",
-				existingNotice.ID, existingNotice.File.Md5)
-
-			// Start transaction for deletion
-			tx := s.db.Begin()
-
-			// Unbind notice from building
-			if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ? AND building_id = ?",
-				existingNotice.ID, buildingID).Error; err != nil {
-				tx.Rollback()
-				*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to unbind notice ID %d: %v", existingNotice.ID, err))
-				continue
-			}
-
-			fmt.Printf("[NoticeSyncService] Unbound notice ID %d from building %d\n", existingNotice.ID, buildingID)
-
-			// Check if notice is bound to other buildings
-			var buildingCount int64
-			if err := tx.Table("notice_buildings").Where("notice_id = ?", existingNotice.ID).Count(&buildingCount).Error; err != nil {
-				tx.Rollback()
-				*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to check notice bindings for ID %d: %v", existingNotice.ID, err))
-				continue
-			}
-
-			if buildingCount == 0 {
-				fmt.Printf("[NoticeSyncService] Notice ID %d has no other building bindings, will be deleted\n", existingNotice.ID)
-
-				// Save file ID for later check
-				fileID := existingNotice.FileID
-
-				// Delete notice if no other bindings exist
-				if err := tx.Delete(&existingNotice).Error; err != nil {
-					tx.Rollback()
-					*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to delete notice ID %d: %v", existingNotice.ID, err))
-					continue
-				}
-
-				fmt.Printf("[NoticeSyncService] Deleted notice ID %d\n", existingNotice.ID)
-
-				// Check if file is used by other notices
-				if fileID != nil {
-					var fileCount int64
-					if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", *fileID).Count(&fileCount).Error; err != nil {
-						tx.Rollback()
-						*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to check file references for notice ID %d: %v", existingNotice.ID, err))
-						continue
-					}
-
-					if fileCount == 0 {
-						fmt.Printf("[NoticeSyncService] File ID %d has no other notice references, will be deleted\n", *fileID)
-
-						// Delete file if no other notices use it
-						if err := tx.Delete(&base_models.File{}, *fileID).Error; err != nil {
-							tx.Rollback()
-							*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to delete file for notice ID %d: %v", existingNotice.ID, err))
-							continue
-						}
-
-						fmt.Printf("[NoticeSyncService] Deleted file ID %d\n", *fileID)
-					} else {
-						fmt.Printf("[NoticeSyncService] File ID %d has %d other notice references, keeping file\n", *fileID, fileCount)
-					}
-				}
-			} else {
-				fmt.Printf("[NoticeSyncService] Notice ID %d has %d other building bindings, keeping notice\n",
-					existingNotice.ID, buildingCount)
-			}
-
-			if err := tx.Commit().Error; err != nil {
-				*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to commit deletion for notice ID %d: %v", existingNotice.ID, err))
-				continue
-			}
-
-			deleteCount++
-		}
-	}
-
-	fmt.Printf("[NoticeSyncService] Deletion process completed for building %d: %d notices deleted\n",
-		buildingID, deleteCount)
-	return deleteCount, nil
-}
-
 // 9. mapNoticeType
 func (s *NoticeSyncService) mapNoticeType(oldType string) field.NoticeType {
 	switch oldType {
@@ -825,344 +1232,4 @@ func (s *NoticeSyncService) mapNoticeType(oldType string) field.NoticeType {
 	default:
 		return field.NoticeTypeNormal
 	}
-}
-
-// Add new function to clear all notice sync related caches
-func (s *NoticeSyncService) clearAllCaches(ctx context.Context) error {
-	// Get all buildings
-	var buildings []base_models.Building
-	if err := s.db.Find(&buildings).Error; err != nil {
-		return fmt.Errorf("failed to get buildings: %v", err)
-	}
-
-	// Clear caches for each building
-	for _, building := range buildings {
-		// Clear notice IDs cache
-		idKey := fmt.Sprintf("building_notice_ids:%d", building.ID)
-		if err := s.redis.Del(ctx, idKey).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear notice IDs cache for building %d: %v\n", building.ID, err)
-		}
-
-		// Clear notice count cache
-		countKey := fmt.Sprintf("building_ismart_notice_count:%d", building.ID)
-		if err := s.redis.Del(ctx, countKey).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear notice count cache for building %d: %v\n", building.ID, err)
-		}
-
-		// Clear building cache
-		buildingKey := fmt.Sprintf("building:%d", building.ID)
-		if err := s.redis.Del(ctx, buildingKey).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear building cache for building %d: %v\n", building.ID, err)
-		}
-	}
-
-	fmt.Println("[NoticeSyncService] All caches cleared successfully")
-	return nil
-}
-
-// 10. StartSyncScheduler
-func (s *NoticeSyncService) StartSyncScheduler(ctx context.Context) {
-	syncInterval := getNoticeSyncInterval()
-	ticker := time.NewTicker(syncInterval)
-	countdownTicker := time.NewTicker(1 * time.Minute)
-	fmt.Println("[NoticeSyncService] Scheduler started")
-
-	// Clear all caches before starting
-	if err := s.clearAllCaches(ctx); err != nil {
-		fmt.Printf("[NoticeSyncService] Warning: failed to clear caches on start: %v\n", err)
-	}
-
-	go func() {
-		// Create admin claims for sync
-		adminClaims := jwt.MapClaims{
-			"id":      float64(1),
-			"isAdmin": true,
-			"email":   "admin@example.com",
-		}
-
-		// 立即执行一次同步
-		fmt.Println("[NoticeSyncService] Running initial sync...")
-		s.runSync(adminClaims)
-		nextSync := time.Now().Add(syncInterval)
-
-		for {
-			select {
-			case <-ctx.Done():
-				ticker.Stop()
-				countdownTicker.Stop()
-				fmt.Println("[NoticeSyncService] Scheduler stopped")
-				return
-			case <-countdownTicker.C:
-				remaining := time.Until(nextSync).Round(time.Minute)
-				fmt.Printf("[NoticeSyncService] Next sync in %d minutes\n", int(remaining.Minutes()))
-			case <-ticker.C:
-				fmt.Println("[NoticeSyncService] Running scheduled sync...")
-				s.runSync(adminClaims)
-				nextSync = time.Now().Add(syncInterval)
-			}
-		}
-	}()
-}
-
-// 11. runSync
-func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
-	// Get all buildings
-	var buildings []base_models.Building
-	if err := s.db.Find(&buildings).Error; err != nil {
-		fmt.Printf("[NoticeSyncService] Failed to get buildings: %v\n", err)
-		return
-	}
-
-	buildingCount := len(buildings)
-	fmt.Printf("[NoticeSyncService] Found %d buildings to sync\n", buildingCount)
-
-	// Get number of CPU cores
-	cpuCores := runtime.NumCPU()
-
-	// Calculate optimal number of building workers based on CPU cores
-	maxBuildingWorkers := calculateBuildingWorkers(buildingCount, cpuCores)
-
-	fmt.Printf("[NoticeSyncService] System has %d CPU cores, using %d concurrent building workers\n",
-		cpuCores, maxBuildingWorkers)
-
-	// Create a wait group to wait for all goroutines to finish
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, maxBuildingWorkers)
-
-	// Create a channel for collecting results
-	resultChan := make(chan struct {
-		buildingID uint
-		name       string
-		result     gin.H
-		err        error
-	}, buildingCount)
-
-	// Start sync for each building concurrently
-	for _, building := range buildings {
-		wg.Add(1)
-		go func(b base_models.Building) {
-			defer wg.Done()
-
-			// Acquire semaphore
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			fmt.Printf("[NoticeSyncService] Starting sync for building %d (%s)\n", b.ID, b.Name)
-			result, err := s.SyncBuildingNotices(b.ID, adminClaims)
-
-			// Send result to channel
-			resultChan <- struct {
-				buildingID uint
-				name       string
-				result     gin.H
-				err        error
-			}{
-				buildingID: b.ID,
-				name:       b.Name,
-				result:     result,
-				err:        err,
-			}
-		}(building)
-	}
-
-	// Start a goroutine to close result channel when all syncs are done
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	// Process results as they come in
-	for res := range resultChan {
-		if res.err != nil {
-			fmt.Printf("[NoticeSyncService] Failed to sync notices for building %d (%s): %v\n",
-				res.buildingID, res.name, res.err)
-			continue
-		}
-
-		// Consolidated statistics output
-		fmt.Printf("[NoticeSyncService] Sync completed for building %d (%s):\n", res.buildingID, res.name)
-		fmt.Printf("[NoticeSyncService]     - Total to process: %d\n", res.result["totalProcessed"])
-		fmt.Printf("[NoticeSyncService]     - Successfully processed: %d\n", res.result["successCount"])
-		fmt.Printf("[NoticeSyncService]     - Already synced: %d\n", res.result["hasSyncedCount"])
-		fmt.Printf("[NoticeSyncService]     - Failed: %d\n", len(res.result["failedNotices"].([]string)))
-		fmt.Printf("[NoticeSyncService]     - To be deleted: %d\n", res.result["deleteCount"])
-
-		// Only show detailed IDs if there are changes
-		needSync := res.result["need_sync_notices"].([]int)
-		hasSync := res.result["has_sync_notices"].([]int)
-		changes := res.result["change_notices"].([]int)
-
-		if len(needSync) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Need sync: %v\n", needSync)
-		}
-		if len(hasSync) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Has sync: %v\n", hasSync)
-		}
-		if len(changes) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Changes: %v\n", changes)
-		}
-
-		// Only show failed notices if there are any
-		failedNotices := res.result["failedNotices"].([]string)
-		if len(failedNotices) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Failed notices:\n")
-			for _, notice := range failedNotices {
-				fmt.Printf("[NoticeSyncService]         * %s\n", notice)
-			}
-		}
-		fmt.Println() // Add a blank line between buildings
-	}
-}
-
-// ManualSyncBuildingNotices performs a manual sync without cache checking
-func (s *NoticeSyncService) ManualSyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
-	// Get building info
-	building, err := s.buildingService.GetByID(buildingID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get building: %v", err)
-	}
-
-	// Get existing notices
-	var existingNotices []base_models.Notice
-	if err := s.db.Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
-		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", buildingID, true).
-		Preload("File").Find(&existingNotices).Error; err != nil {
-		return nil, fmt.Errorf("failed to get existing notices: %v", err)
-	}
-
-	// Request notices from old system
-	url := "https://uqf0jqfm77.execute-api.ap-east-1.amazonaws.com/prod/v1/building_board/building-notices"
-	reqBody := struct {
-		BlgID string `json:"blg_id"`
-	}{
-		BlgID: building.IsmartID,
-	}
-
-	reqBodyJSON, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %v", err)
-	}
-
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(reqBodyJSON))
-	if err != nil {
-		return nil, fmt.Errorf("failed to request old system: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var oldNotices []OldSystemNotice
-	if err := json.NewDecoder(resp.Body).Decode(&oldNotices); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %v", err)
-	}
-
-	// Create MD5 map for existing notices
-	existingMD5Map := make(map[string]bool)
-	existingMD5ToNoticeID := make(map[string]uint)
-	for _, notice := range existingNotices {
-		if notice.File != nil {
-			existingMD5Map[notice.File.Md5] = true
-			existingMD5ToNoticeID[notice.File.Md5] = notice.ID
-		}
-	}
-
-	// Calculate optimal worker count
-	workers := calculateWorkerCount(len(oldNotices))
-	resultChan := make(chan processResult, len(oldNotices))
-	semaphore := make(chan struct{}, workers)
-
-	fmt.Printf("[NoticeSyncService] Starting concurrent processing with %d workers for %d notices\n",
-		workers, len(oldNotices))
-
-	// Process notices concurrently
-	for _, oldNotice := range oldNotices {
-		go func(notice OldSystemNotice) {
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			result := processResult{noticeID: notice.ID}
-
-			// Download and process file
-			fileResp, err := http.Get(notice.MessFile)
-			if err != nil {
-				result.error = fmt.Errorf("failed to download file: %v", err)
-				resultChan <- result
-				return
-			}
-			defer fileResp.Body.Close()
-
-			fileContent, err := io.ReadAll(fileResp.Body)
-			if err != nil {
-				result.error = fmt.Errorf("failed to read file content: %v", err)
-				resultChan <- result
-				return
-			}
-
-			md5Hash := md5.Sum(fileContent)
-			md5Str := hex.EncodeToString(md5Hash[:])
-			result.md5 = md5Str
-
-			// Check if file exists
-			if existingMD5Map[md5Str] {
-				result.success = true
-				result.syncRequired = false
-			} else {
-				result.syncRequired = true
-				if err := s.processNotice(buildingID, notice, fileContent, claims); err != nil {
-					result.error = err
-				} else {
-					result.success = true
-				}
-			}
-
-			resultChan <- result
-		}(oldNotice)
-	}
-
-	// Collect results
-	var successCount, hasSyncedCount int
-	var failedNotices []string
-	var needSyncNotices, hasSyncNotices, changeNotices []int
-	processedMD5s := make(map[string]bool)
-
-	for i := 0; i < len(oldNotices); i++ {
-		result := <-resultChan
-		if result.error != nil {
-			failedNotices = append(failedNotices, fmt.Sprintf("Failed to process notice ID %d: %v", result.noticeID, result.error))
-			continue
-		}
-
-		processedMD5s[result.md5] = true
-		if result.syncRequired {
-			if result.success {
-				successCount++
-				needSyncNotices = append(needSyncNotices, result.noticeID)
-			}
-		} else {
-			hasSyncedCount++
-			if id, ok := existingMD5ToNoticeID[result.md5]; ok {
-				hasSyncNotices = append(hasSyncNotices, int(id))
-			}
-		}
-	}
-
-	// Process deletions
-	deleteCount := 0
-	if len(changeNotices) > 0 {
-		var err error
-		deleteCount, err = s.processDeletedNotices(buildingID, existingNotices, processedMD5s, &failedNotices)
-		if err != nil {
-			return nil, fmt.Errorf("failed to process deletions: %v", err)
-		}
-	}
-
-	return gin.H{
-		"message":           "Manual sync completed",
-		"successCount":      successCount,
-		"hasSyncedCount":    hasSyncedCount,
-		"deleteCount":       deleteCount,
-		"failedNotices":     failedNotices,
-		"totalProcessed":    len(oldNotices),
-		"has_sync_notices":  hasSyncNotices,
-		"need_sync_notices": needSyncNotices,
-		"change_notices":    changeNotices,
-	}, nil
 }

@@ -20,9 +20,7 @@ function Handle-Error {
   # Rollback command
   $rollbackCmd = @"
 cd $REMOTE_DIR && 
-cp -r backup/controller/base/* controller/base/ &&
-cp -r backup/models/base/* models/base/ &&
-cp -r backup/services/base/* services/base/ &&
+cp -r backup/services/base/notice_sync_service.go services/base/ &&
 docker-compose down && 
 docker-compose build backend && 
 docker-compose up -d
@@ -43,12 +41,8 @@ if (-not $?) { Handle-Error "Failed to check service status" }
 Write-Host "Creating backup of current files..."
 $cmd = @"
 cd $REMOTE_DIR && 
-mkdir -p backup/controller/base &&
-mkdir -p backup/models/base &&
 mkdir -p backup/services/base &&
-cp -r controller/base/building_controller.go backup/controller/base/ &&
-cp -r models/base/building.go backup/models/base/ &&
-cp -r services/base/building_service.go backup/services/base/ &&
+cp -r services/base/notice_sync_service.go backup/services/base/ &&
 echo 'Backup created'
 "@
 $result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
@@ -60,26 +54,11 @@ $cmd = "cd $REMOTE_DIR && docker-compose stop backend && sleep 5"
 $result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
 if (-not $?) { Handle-Error "Failed to stop backend service" }
 
-# 3.5 Clean up misplaced files
-Write-Host "Cleaning up misplaced files..."
-$cmd = @"
-cd $REMOTE_DIR &&
-rm -f services/base/building_controller.go &&
-rm -f services/base/router.go &&
-echo 'Cleaned up misplaced files'
-"@
-$result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
-if (-not $?) { Handle-Error "Failed to clean up misplaced files" }
-
 # 4. Create temp directory and subdirectories
 if (Test-Path "temp") {
   Remove-Item -Recurse -Force "temp"
 }
 New-Item -ItemType Directory -Path "temp" -Force
-New-Item -ItemType Directory -Path "temp/controller" -Force
-New-Item -ItemType Directory -Path "temp/controller/base" -Force
-New-Item -ItemType Directory -Path "temp/models" -Force
-New-Item -ItemType Directory -Path "temp/models/base" -Force
 New-Item -ItemType Directory -Path "temp/services" -Force
 New-Item -ItemType Directory -Path "temp/services/base" -Force
 
@@ -87,9 +66,7 @@ Write-Host "Creating update package..."
 
 # 5. Copy modified files
 Write-Host "Copying modified files..."
-Copy-Item "controller/base/building_controller.go" -Destination "temp/controller/base/" -Force
-Copy-Item "models/base/building.go" -Destination "temp/models/base/" -Force
-Copy-Item "services/base/building_service.go" -Destination "temp/services/base/" -Force
+Copy-Item "services/base/notice_sync_service.go" -Destination "temp/services/base/" -Force
 
 # 6. Create update package
 Write-Host "Creating update archive..."
@@ -108,7 +85,7 @@ $cmd = @"
 cd $REMOTE_DIR && 
 tar -xzf update.tar.gz && 
 rm update.tar.gz && 
-ls -l controller/base/building_controller.go models/base/building.go services/base/building_service.go
+ls -l services/base/notice_sync_service.go
 "@
 $result = echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $cmd
 if (-not $?) { Handle-Error "Failed to extract files" }
@@ -153,14 +130,14 @@ echo $REMOTE_PASS | ssh -o StrictHostKeyChecking=no $REMOTE_USER@$REMOTE_HOST $c
 
 Write-Host ""
 Write-Host "Important notes:"
-Write-Host "1. Backend service updated with new building management features"
+Write-Host "1. Backend service updated with new notice sync functionality"
 Write-Host "2. Service port remains: 10031"
 Write-Host "3. Using existing MySQL and Redis services"
 Write-Host "4. Backup of original files created in $REMOTE_DIR/backup"
 Write-Host ""
 Write-Host "To view logs use: docker-compose logs -f backend"
 Write-Host "To restart service use: docker-compose restart backend"
-Write-Host "To rollback use: cd $REMOTE_DIR && cp -r backup/controller/base/* controller/base/ && cp -r backup/models/base/* models/base/ && cp -r backup/services/base/* services/base/ && docker-compose down && docker-compose build backend && docker-compose up -d"
+Write-Host "To rollback use: cd $REMOTE_DIR && cp -r backup/services/base/notice_sync_service.go services/base/ && docker-compose down && docker-compose build backend && docker-compose up -d"
 Write-Host ""
 
 Pause 
