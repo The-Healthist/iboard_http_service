@@ -17,6 +17,15 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
       - REDIS_DB=0
+      - ACCESS_KEY_ID=${ACCESS_KEY_ID}
+      - ACCESS_KEY_SECRET=${ACCESS_KEY_SECRET}
+      - HOST=${HOST}
+      - CALLBACK_URL=${CALLBACK_URL}
+      - CALLBACK_URL_SYNC=${CALLBACK_URL_SYNC}
+      - SMTP_ADDR=${SMTP_ADDR}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
     volumes:
       - ./logs:/app/logs
     depends_on:

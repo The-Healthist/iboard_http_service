@@ -2,7 +2,7 @@
 
 # Configuration
 REMOTE_USER="root"
-REMOTE_HOST="39.108.49.167"
+REMOTE_HOST="117.72.193.54"
 REMOTE_DIR="/root/iboard"
 REMOTE_PASS="1090119your@"
 DB_HOST="localhost"
@@ -111,7 +111,6 @@ echo "1. Backend service updated with new notice sync functionality"
 echo "2. Service port remains: 10031"
 echo "3. Using existing MySQL and Redis services"
 echo "4. Backup of original files created in $REMOTE_DIR/backup"
-echo "5. Please ensure you've manually uploaded the .env file before running this script"
 echo ""
 echo "To view logs use: docker-compose logs -f backend"
 echo "To restart service use: docker-compose restart backend"
