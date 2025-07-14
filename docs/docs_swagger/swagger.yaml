@@ -1,0 +1,3236 @@
+basePath: /api
+definitions:
+  field.AdvertisementDisplay:
+    enum:
+    - full
+    - top
+    - topfull
+    type: string
+    x-enum-varnames:
+    - AdDisplayFull
+    - AdDisplayTop
+    - AdDisplayTopFull
+  field.AdvertisementType:
+    enum:
+    - video
+    - image
+    type: string
+    x-enum-varnames:
+    - AdTypeVideo
+    - AdTypeImage
+  field.FileType:
+    enum:
+    - pdf
+    type: string
+    x-enum-varnames:
+    - FileTypePdf
+  field.NoticeType:
+    enum:
+    - urgent
+    - normal
+    - building
+    - government
+    type: string
+    x-enum-varnames:
+    - NoticeTypeUrgent
+    - NoticeTypeNormal
+    - NoticeTypeBuilding
+    - NoticeTypeGovernment
+  field.Status:
+    enum:
+    - pending
+    - active
+    - inactive
+    type: string
+    x-enum-varnames:
+    - StatusPending
+    - StatusActive
+    - StatusInactive
+  http_base_controller.CreateAdvertisementRequest:
+    properties:
+      description:
+        example: 夏季促销活动，全场8折
+        type: string
+      display:
+        allOf:
+        - $ref: '#/definitions/field.AdvertisementDisplay'
+        example: fullscreen
+      duration:
+        example: 30
+        type: integer
+      endTime:
+        example: "2023-08-31T23:59:59Z"
+        type: string
+      isPublic:
+        example: true
+        type: boolean
+      path:
+        example: /uploads/images/summer_sale.jpg
+        type: string
+      priority:
+        example: 1
+        type: integer
+      startTime:
+        example: "2023-06-01T00:00:00Z"
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/field.Status'
+        example: active
+      title:
+        example: 夏季促销活动
+        type: string
+      type:
+        allOf:
+        - $ref: '#/definitions/field.AdvertisementType'
+        example: image
+    required:
+    - display
+    - endTime
+    - path
+    - startTime
+    - status
+    - title
+    - type
+    type: object
+  http_base_controller.CreateNoticeRequest:
+    properties:
+      description:
+        example: 关于召开2023年度业主大会的通知
+        type: string
+      endTime:
+        example: "2023-06-30T23:59:59Z"
+        type: string
+      fileType:
+        allOf:
+        - $ref: '#/definitions/field.FileType'
+        example: pdf
+      isIsmartNotice:
+        example: false
+        type: boolean
+      isPublic:
+        example: true
+        type: boolean
+      path:
+        example: /uploads/documents/owners_meeting.pdf
+        type: string
+      priority:
+        example: 1
+        type: integer
+      startTime:
+        example: "2023-06-01T00:00:00Z"
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/field.Status'
+        example: active
+      title:
+        example: 业主大会通知
+        type: string
+      type:
+        allOf:
+        - $ref: '#/definitions/field.NoticeType'
+        example: normal
+    required:
+    - endTime
+    - fileType
+    - path
+    - startTime
+    - status
+    - title
+    - type
+    type: object
+  http_base_controller.SuperAdminChangePasswordRequest:
+    properties:
+      new_password:
+        example: newpassword123
+        type: string
+      old_password:
+        example: oldpassword123
+        type: string
+    required:
+    - new_password
+    - old_password
+    type: object
+  http_base_controller.SuperAdminCreateRequest:
+    properties:
+      email:
+        example: newadmin@example.com
+        type: string
+      password:
+        example: newpassword123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  http_base_controller.SuperAdminDeleteRequest:
+    type: object
+  http_base_controller.SuperAdminLoginRequest:
+    properties:
+      email:
+        example: admin@example.com
+        type: string
+      password:
+        example: password123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  http_base_controller.SuperAdminResetPasswordRequest:
+    properties:
+      id:
+        example: 2
+        type: integer
+      password:
+        example: newpassword123
+        type: string
+    required:
+    - id
+    - password
+    type: object
+host: localhost:10031
+info:
+  contact:
+    email: support@yourcompany.com
+    name: API Support
+    url: http://www.yourcompany.com/support
+  description: 智能门禁管理系统API
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: ILock HTTP Service API
+  version: "1.0"
+paths:
+  /admin/advertisement:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一个或多个广告
+      parameters:
+      - description: 广告ID列表
+        in: body
+        name: ids
+        required: true
+        schema:
+          type: object
+      - description: 广告ID数组
+        in: body
+        name: ids.ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除广告
+      tags:
+      - Advertisement
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取广告列表
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: search
+        type: string
+      - description: 广告类型
+        in: query
+        name: type
+        type: string
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - default: false
+        description: 是否降序
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回广告列表和分页信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取广告列表
+      tags:
+      - Advertisement
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新的广告
+      parameters:
+      - description: 广告信息
+        in: body
+        name: advertisement
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.CreateAdvertisementRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的广告信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建广告
+      tags:
+      - Advertisement
+    put:
+      consumes:
+      - application/json
+      description: 更新广告信息
+      parameters:
+      - description: 广告更新信息
+        in: body
+        name: advertisement
+        required: true
+        schema:
+          type: object
+      - description: 广告ID
+        in: formData
+        name: id
+        required: true
+        type: integer
+      - description: 广告标题
+        in: formData
+        name: title
+        type: string
+      - description: 广告描述
+        in: formData
+        name: description
+        type: string
+      - description: 广告类型
+        in: formData
+        name: type
+        type: string
+      - description: 状态
+        in: formData
+        name: status
+        type: string
+      - description: 持续时间(秒)
+        in: formData
+        name: duration
+        type: integer
+      - description: 优先级
+        in: formData
+        name: priority
+        type: integer
+      - description: 开始时间
+        in: formData
+        name: startTime
+        type: string
+      - description: 结束时间
+        in: formData
+        name: endTime
+        type: string
+      - description: 显示方式
+        in: formData
+        name: display
+        type: string
+      - description: 是否公开
+        in: formData
+        name: isPublic
+        type: boolean
+      - description: 文件路径
+        in: formData
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回更新后的广告信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新广告
+      tags:
+      - Advertisement
+  /admin/advertisement-building/advertisements:
+    get:
+      consumes:
+      - application/json
+      description: 根据建筑ID获取所有与之绑定的广告信息
+      parameters:
+      - description: 建筑ID
+        in: query
+        name: buildingId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 广告列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的建筑ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑绑定的广告
+      tags:
+      - Advertisement-Building
+  /admin/advertisement-building/bind:
+    post:
+      consumes:
+      - application/json
+      description: 将一个或多个广告绑定到一个或多个建筑物
+      parameters:
+      - description: 绑定信息
+        in: body
+        name: bindingInfo
+        required: true
+        schema:
+          type: object
+      - description: 广告ID列表
+        in: body
+        name: advertisementIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      - description: 建筑ID列表
+        in: body
+        name: buildingIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 绑定结果信息，包含成功绑定的关系和已存在的绑定
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 广告或建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 绑定广告到建筑
+      tags:
+      - Advertisement-Building
+  /admin/advertisement-building/buildings:
+    get:
+      consumes:
+      - application/json
+      description: 根据广告ID获取所有与之绑定的建筑物信息
+      parameters:
+      - description: 广告ID
+        in: query
+        name: advertisementId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 建筑列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的广告ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 广告不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取广告绑定的建筑
+      tags:
+      - Advertisement-Building
+  /admin/advertisement-building/unbind:
+    post:
+      consumes:
+      - application/json
+      description: 解除一个广告与多个建筑物的绑定关系
+      parameters:
+      - description: 解绑信息
+        in: body
+        name: unbindInfo
+        required: true
+        schema:
+          type: object
+      - description: 广告ID
+        in: body
+        name: advertisementId
+        required: true
+        schema:
+          type: integer
+      - description: 建筑ID列表
+        in: body
+        name: buildingIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误或建筑未绑定
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 广告或建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑广告与建筑
+      tags:
+      - Advertisement-Building
+  /admin/advertisement/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取广告详细信息
+      parameters:
+      - description: 广告ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回广告详细信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 广告不存在
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个广告
+      tags:
+      - Advertisement
+  /admin/advertisements:
+    post:
+      consumes:
+      - application/json
+      description: 批量创建多个广告
+      parameters:
+      - description: 广告信息数组
+        in: body
+        name: advertisements
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/http_base_controller.CreateAdvertisementRequest'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的广告信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量创建广告
+      tags:
+      - Advertisement
+  /admin/building:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一个或多个建筑
+      parameters:
+      - description: 建筑ID列表
+        in: body
+        name: ids
+        required: true
+        schema:
+          type: object
+      - description: 建筑ID数组
+        in: body
+        name: ids.ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除建筑
+      tags:
+      - Building
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取建筑列表
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: search
+        type: string
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - default: false
+        description: 是否降序
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回建筑列表和分页信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑列表
+      tags:
+      - Building
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新的建筑记录
+      parameters:
+      - description: 建筑信息
+        in: body
+        name: building
+        required: true
+        schema:
+          type: object
+      - description: 建筑名称
+        in: formData
+        name: name
+        required: true
+        type: string
+      - description: 智慧建筑ID
+        in: formData
+        name: ismartId
+        required: true
+        type: string
+      - description: 备注
+        in: formData
+        name: remark
+        type: string
+      - description: 位置
+        in: formData
+        name: location
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的建筑信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建建筑
+      tags:
+      - Building
+    put:
+      consumes:
+      - application/json
+      description: 更新建筑信息
+      parameters:
+      - description: 建筑更新信息
+        in: body
+        name: building
+        required: true
+        schema:
+          type: object
+      - description: 建筑ID
+        in: formData
+        name: id
+        required: true
+        type: integer
+      - description: 建筑名称
+        in: formData
+        name: name
+        type: string
+      - description: 智慧建筑ID
+        in: formData
+        name: ismartId
+        type: string
+      - description: 备注
+        in: formData
+        name: remark
+        type: string
+      - description: 位置
+        in: formData
+        name: location
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新建筑
+      tags:
+      - Building
+  /admin/building-admin-building/admins:
+    get:
+      consumes:
+      - application/json
+      description: 根据建筑ID获取管理该建筑的所有管理员信息
+      parameters:
+      - description: 建筑ID
+        in: query
+        name: buildingId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 建筑管理员列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的建筑ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑的管理员
+      tags:
+      - BuildingAdmin-Building
+  /admin/building-admin-building/bind:
+    post:
+      consumes:
+      - application/json
+      description: 将一个或多个建筑管理员绑定到一个或多个建筑物
+      parameters:
+      - description: 绑定信息
+        in: body
+        name: bindInfo
+        required: true
+        schema:
+          type: object
+      - description: 建筑管理员ID列表
+        in: body
+        name: buildingAdminIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      - description: 建筑ID列表
+        in: body
+        name: buildingIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 绑定结果信息，包含成功绑定的关系和已存在的绑定
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑管理员或建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 绑定建筑管理员到建筑
+      tags:
+      - BuildingAdmin-Building
+  /admin/building-admin-building/buildings:
+    get:
+      consumes:
+      - application/json
+      description: 根据建筑管理员ID获取其管理的所有建筑物信息
+      parameters:
+      - description: 建筑管理员ID
+        in: query
+        name: buildingAdminId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 建筑列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的建筑管理员ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑管理员不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑管理员管理的建筑
+      tags:
+      - BuildingAdmin-Building
+  /admin/building-admin-building/unbind:
+    post:
+      consumes:
+      - application/json
+      description: 解除一个建筑管理员与多个建筑物的绑定关系
+      parameters:
+      - description: 解绑信息
+        in: body
+        name: unbindInfo
+        required: true
+        schema:
+          type: object
+      - description: 建筑管理员ID
+        in: body
+        name: buildingAdminId
+        required: true
+        schema:
+          type: integer
+      - description: 建筑ID列表
+        in: body
+        name: buildingIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误或建筑未绑定
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑管理员或建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑建筑管理员与建筑
+      tags:
+      - BuildingAdmin-Building
+  /admin/building/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取建筑详细信息，包含关联设备
+      parameters:
+      - description: 建筑ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回建筑详细信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个建筑
+      tags:
+      - Building
+  /admin/building/{id}/sync_notice:
+    post:
+      consumes:
+      - application/json
+      description: 手动触发建筑通知同步过程
+      parameters:
+      - description: 建筑ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步结果详情
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的建筑ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 手动同步建筑通知
+      tags:
+      - Building
+  /admin/building_admin:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一个或多个建筑管理员
+      parameters:
+      - description: 建筑管理员ID列表
+        in: body
+        name: ids
+        required: true
+        schema:
+          type: object
+      - description: 建筑管理员ID数组
+        in: body
+        name: ids.ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除建筑管理员
+      tags:
+      - BuildingAdmin
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取建筑管理员列表
+      parameters:
+      - description: 建筑ID
+        in: query
+        name: buildingId
+        type: string
+      - description: 状态
+        in: query
+        name: status
+        type: string
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - default: false
+        description: 是否降序
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回建筑管理员列表和分页信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑管理员列表
+      tags:
+      - BuildingAdmin
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新的建筑管理员账户
+      parameters:
+      - description: 建筑管理员信息
+        in: body
+        name: buildingAdmin
+        required: true
+        schema:
+          type: object
+      - description: 邮箱
+        in: formData
+        name: email
+        required: true
+        type: string
+      - description: 密码
+        in: formData
+        name: password
+        required: true
+        type: string
+      - description: 状态
+        in: formData
+        name: status
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的建筑管理员信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建建筑管理员
+      tags:
+      - BuildingAdmin
+    put:
+      consumes:
+      - application/json
+      description: 更新建筑管理员信息
+      parameters:
+      - description: 建筑管理员更新信息
+        in: body
+        name: buildingAdmin
+        required: true
+        schema:
+          type: object
+      - description: 建筑管理员ID
+        in: formData
+        name: id
+        required: true
+        type: integer
+      - description: 密码
+        in: formData
+        name: password
+        type: string
+      - description: 状态
+        in: formData
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新建筑管理员
+      tags:
+      - BuildingAdmin
+  /admin/building_admin/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取建筑管理员详细信息
+      parameters:
+      - description: 建筑管理员ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回建筑管理员详细信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个建筑管理员
+      tags:
+      - BuildingAdmin
+  /admin/device:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一个或多个设备
+      parameters:
+      - description: 设备ID列表
+        in: body
+        name: ids
+        required: true
+        schema:
+          type: object
+      - description: 设备ID数组
+        in: body
+        name: ids.ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除设备
+      tags:
+      - Device
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取设备列表，包含设备状态
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: search
+        type: string
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - default: true
+        description: 是否降序
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回设备列表和分页信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取设备列表
+      tags:
+      - Device
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新的设备
+      parameters:
+      - description: 设备信息
+        in: body
+        name: device
+        required: true
+        schema:
+          type: object
+      - description: 设备ID
+        in: formData
+        name: deviceId
+        required: true
+        type: string
+      - description: 建筑ID
+        in: formData
+        name: buildingId
+        required: true
+        type: integer
+      - description: 设备设置
+        in: formData
+        name: settings
+        type: object
+      - description: 欠费更新间隔(秒)
+        in: formData
+        name: settings.arrearageUpdateDuration
+        type: integer
+      - description: 通知更新间隔(秒)
+        in: formData
+        name: settings.noticeUpdateDuration
+        type: integer
+      - description: 广告更新间隔(秒)
+        in: formData
+        name: settings.advertisementUpdateDuration
+        type: integer
+      - description: 广告播放时长(秒)
+        in: formData
+        name: settings.advertisementPlayDuration
+        type: integer
+      - description: 通知播放时长(秒)
+        in: formData
+        name: settings.noticePlayDuration
+        type: integer
+      - description: 空闲时长(秒)
+        in: formData
+        name: settings.spareDuration
+        type: integer
+      - description: 通知停留时长(秒)
+        in: formData
+        name: settings.noticeStayDuration
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的设备信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建设备
+      tags:
+      - Device
+    put:
+      consumes:
+      - application/json
+      description: 更新设备信息，包括设备ID、所属建筑和设置
+      parameters:
+      - description: 设备更新信息
+        in: body
+        name: device
+        required: true
+        schema:
+          type: object
+      - description: 设备ID
+        in: formData
+        name: id
+        required: true
+        type: integer
+      - description: 设备ID
+        in: formData
+        name: deviceId
+        type: string
+      - description: 建筑ID
+        in: formData
+        name: buildingId
+        type: integer
+      - description: 设备设置
+        in: formData
+        name: settings
+        type: object
+      - description: 欠费更新间隔(秒)
+        in: formData
+        name: settings.arrearageUpdateDuration
+        type: integer
+      - description: 通知更新间隔(秒)
+        in: formData
+        name: settings.noticeUpdateDuration
+        type: integer
+      - description: 广告更新间隔(秒)
+        in: formData
+        name: settings.advertisementUpdateDuration
+        type: integer
+      - description: 广告播放时长(秒)
+        in: formData
+        name: settings.advertisementPlayDuration
+        type: integer
+      - description: 通知播放时长(秒)
+        in: formData
+        name: settings.noticePlayDuration
+        type: integer
+      - description: 空闲时长(秒)
+        in: formData
+        name: settings.spareDuration
+        type: integer
+      - description: 通知停留时长(秒)
+        in: formData
+        name: settings.noticeStayDuration
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回更新后的设备信息，包含状态
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新设备
+      tags:
+      - Device
+  /admin/device-building/bind:
+    post:
+      consumes:
+      - application/json
+      description: 将一个或多个设备绑定到一个建筑物
+      parameters:
+      - description: 绑定信息
+        in: body
+        name: bindInfo
+        required: true
+        schema:
+          type: object
+      - description: 设备ID列表
+        in: body
+        name: deviceIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      - description: 建筑ID
+        in: body
+        name: buildingId
+        required: true
+        schema:
+          type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 绑定成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误或绑定失败
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 绑定设备到建筑
+      tags:
+      - Device-Building
+  /admin/device-building/building:
+    get:
+      consumes:
+      - application/json
+      description: 根据设备ID获取其所属的建筑物信息
+      parameters:
+      - description: 设备ID
+        in: query
+        name: deviceId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 建筑信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的设备ID或获取建筑失败
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取设备所属建筑
+      tags:
+      - Device-Building
+  /admin/device-building/devices:
+    get:
+      consumes:
+      - application/json
+      description: 获取与指定建筑物关联的所有设备信息及其状态
+      parameters:
+      - description: 建筑ID
+        in: query
+        name: buildingId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 设备列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的建筑ID或获取设备失败
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑绑定的设备
+      tags:
+      - Device-Building
+  /admin/device-building/unbind:
+    post:
+      consumes:
+      - application/json
+      description: 解除一个设备与其关联的建筑物的绑定关系
+      parameters:
+      - description: 解绑信息
+        in: body
+        name: unbindInfo
+        required: true
+        schema:
+          type: object
+      - description: 设备ID
+        in: body
+        name: deviceId
+        required: true
+        schema:
+          type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误或解绑失败
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑设备与建筑
+      tags:
+      - Device-Building
+  /admin/device/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取设备详细信息
+      parameters:
+      - description: 设备ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回设备详细信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 设备不存在
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个设备
+      tags:
+      - Device
+  /admin/devices:
+    post:
+      consumes:
+      - application/json
+      description: 批量创建多个设备
+      parameters:
+      - description: 设备信息数组
+        in: body
+        name: devices
+        required: true
+        schema:
+          type: object
+      - description: 设备数组
+        in: body
+        name: devices.devices
+        required: true
+        schema:
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的设备信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量创建设备
+      tags:
+      - Device
+  /admin/file:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一个或多个文件
+      parameters:
+      - description: 文件ID列表
+        in: body
+        name: ids
+        required: true
+        schema:
+          type: object
+      - description: 文件ID数组
+        in: body
+        name: ids.ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除文件
+      tags:
+      - File
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取文件列表
+      parameters:
+      - description: 文件类型
+        in: query
+        name: mimeType
+        type: string
+      - description: 对象存储服务
+        in: query
+        name: oss
+        type: string
+      - description: 上传者类型
+        in: query
+        name: uploaderType
+        type: string
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - default: false
+        description: 是否降序
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回文件列表和分页信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取文件列表
+      tags:
+      - File
+    post:
+      consumes:
+      - application/json
+      description: 创建单个文件记录
+      parameters:
+      - description: 文件信息
+        in: body
+        name: file
+        required: true
+        schema:
+          type: object
+      - description: 文件路径
+        in: formData
+        name: path
+        required: true
+        type: string
+      - description: 文件大小
+        in: formData
+        name: size
+        required: true
+        type: integer
+      - description: 文件类型
+        in: formData
+        name: mimeType
+        required: true
+        type: string
+      - description: 对象存储服务
+        in: formData
+        name: oss
+        required: true
+        type: string
+      - description: 上传者类型
+        in: formData
+        name: uploaderType
+        required: true
+        type: string
+      - description: 上传者ID
+        in: formData
+        name: uploaderId
+        required: true
+        type: integer
+      - description: 文件MD5
+        in: formData
+        name: md5
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的文件信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建文件
+      tags:
+      - File
+    put:
+      consumes:
+      - application/json
+      description: 更新文件信息
+      parameters:
+      - description: 文件更新信息
+        in: body
+        name: file
+        required: true
+        schema:
+          type: object
+      - description: 文件ID
+        in: formData
+        name: id
+        required: true
+        type: integer
+      - description: 文件路径
+        in: formData
+        name: path
+        type: string
+      - description: 文件大小
+        in: formData
+        name: size
+        type: integer
+      - description: 文件类型
+        in: formData
+        name: mimeType
+        type: string
+      - description: 对象存储服务
+        in: formData
+        name: oss
+        type: string
+      - description: 上传者
+        in: formData
+        name: uploader
+        type: string
+      - description: 上传者类型
+        in: formData
+        name: uploaderType
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新文件
+      tags:
+      - File
+  /admin/file-advertisement/advertisement:
+    get:
+      consumes:
+      - application/json
+      description: 获取与指定文件关联的广告信息
+      parameters:
+      - description: 文件ID
+        in: query
+        name: fileId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 广告信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的文件ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 根据文件获取广告
+      tags:
+      - File-Advertisement
+  /admin/file-advertisement/bind:
+    post:
+      consumes:
+      - application/json
+      description: 将一个文件绑定到一个广告
+      parameters:
+      - description: 绑定信息
+        in: body
+        name: bindInfo
+        required: true
+        schema:
+          type: object
+      - description: 广告ID
+        in: body
+        name: advertisementId
+        required: true
+        schema:
+          type: integer
+      - description: 文件ID
+        in: body
+        name: fileId
+        required: true
+        schema:
+          type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 绑定成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 广告或文件不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 绑定文件到广告
+      tags:
+      - File-Advertisement
+  /admin/file-advertisement/file:
+    get:
+      consumes:
+      - application/json
+      description: 获取与指定广告关联的文件信息
+      parameters:
+      - description: 广告ID
+        in: query
+        name: advertisementId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文件信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的广告ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 根据广告获取文件
+      tags:
+      - File-Advertisement
+  /admin/file-advertisement/unbind:
+    get:
+      consumes:
+      - application/json
+      description: 解除一个广告与其绑定的文件的关系
+      parameters:
+      - description: 广告ID
+        in: query
+        name: advertisementId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的广告ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑文件与广告
+      tags:
+      - File-Advertisement
+  /admin/file-notice/bind:
+    post:
+      consumes:
+      - application/json
+      description: 将一个文件绑定到一个通知
+      parameters:
+      - description: 绑定信息
+        in: body
+        name: bindInfo
+        required: true
+        schema:
+          type: object
+      - description: 通知ID
+        in: body
+        name: noticeId
+        required: true
+        schema:
+          type: integer
+      - description: 文件ID
+        in: body
+        name: fileId
+        required: true
+        schema:
+          type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 绑定成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 通知或文件不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 绑定文件到通知
+      tags:
+      - File-Notice
+  /admin/file-notice/file:
+    get:
+      consumes:
+      - application/json
+      description: 获取与指定通知关联的文件信息
+      parameters:
+      - description: 通知ID
+        in: query
+        name: noticeId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文件信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的通知ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 根据通知获取文件
+      tags:
+      - File-Notice
+  /admin/file-notice/notice:
+    get:
+      consumes:
+      - application/json
+      description: 获取与指定文件关联的通知信息
+      parameters:
+      - description: 文件ID
+        in: query
+        name: fileId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 通知信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的文件ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 根据文件获取通知
+      tags:
+      - File-Notice
+  /admin/file-notice/unbind:
+    get:
+      consumes:
+      - application/json
+      description: 解除一个通知与其绑定的文件的关系
+      parameters:
+      - description: 通知ID
+        in: query
+        name: noticeId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的通知ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑文件与通知
+      tags:
+      - File-Notice
+  /admin/file/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取文件详细信息
+      parameters:
+      - description: 文件ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回文件详细信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 文件不存在
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个文件
+      tags:
+      - File
+  /admin/files:
+    post:
+      consumes:
+      - application/json
+      description: 批量创建多个文件记录
+      parameters:
+      - description: 文件信息数组
+        in: body
+        name: files
+        required: true
+        schema:
+          type: array
+      - description: 文件路径
+        in: formData
+        name: path
+        required: true
+        type: string
+      - description: 文件大小
+        in: formData
+        name: size
+        required: true
+        type: integer
+      - description: 文件类型
+        in: formData
+        name: mimeType
+        required: true
+        type: string
+      - description: 对象存储服务
+        in: formData
+        name: oss
+        required: true
+        type: string
+      - description: 上传者类型
+        in: formData
+        name: uploaderType
+        required: true
+        type: string
+      - description: 上传者ID
+        in: formData
+        name: uploaderId
+        required: true
+        type: integer
+      - description: 文件MD5
+        in: formData
+        name: md5
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的文件信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量创建文件
+      tags:
+      - File
+  /admin/login:
+    post:
+      consumes:
+      - application/json
+      description: 超级管理员通过邮箱和密码登录系统
+      parameters:
+      - description: 登录信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.SuperAdminLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 包含token和登录成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 登录失败信息
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - None: []
+      summary: 超级管理员登录
+      tags:
+      - SuperAdmin
+  /admin/notice:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一个或多个通知
+      parameters:
+      - description: 通知ID列表
+        in: body
+        name: ids
+        required: true
+        schema:
+          type: object
+      - description: 通知ID数组
+        in: body
+        name: ids.ids
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除通知
+      tags:
+      - Notice
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取通知列表
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: search
+        type: string
+      - description: 通知类型
+        in: query
+        name: type
+        type: string
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: pageNum
+        type: integer
+      - default: false
+        description: 是否降序
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回通知列表和分页信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取通知列表
+      tags:
+      - Notice
+    post:
+      consumes:
+      - application/json
+      description: 创建一个新的通知
+      parameters:
+      - description: 通知信息
+        in: body
+        name: notice
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.CreateNoticeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的通知信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建通知
+      tags:
+      - Notice
+    put:
+      consumes:
+      - application/json
+      description: 更新通知信息
+      parameters:
+      - description: 通知更新信息
+        in: body
+        name: notice
+        required: true
+        schema:
+          type: object
+      - description: 通知ID
+        in: formData
+        name: id
+        required: true
+        type: integer
+      - description: 通知标题
+        in: formData
+        name: title
+        type: string
+      - description: 通知描述
+        in: formData
+        name: description
+        type: string
+      - description: 通知类型
+        in: formData
+        name: type
+        type: string
+      - description: 状态
+        in: formData
+        name: status
+        type: string
+      - description: 开始时间
+        in: formData
+        name: startTime
+        type: string
+      - description: 结束时间
+        in: formData
+        name: endTime
+        type: string
+      - description: 是否公开
+        in: formData
+        name: isPublic
+        type: boolean
+      - description: 优先级
+        in: formData
+        name: priority
+        type: integer
+      - description: 文件路径
+        in: formData
+        name: path
+        type: string
+      - description: 文件类型
+        in: formData
+        name: fileType
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回更新后的通知信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 更新通知
+      tags:
+      - Notice
+  /admin/notice-building/bind:
+    post:
+      consumes:
+      - application/json
+      description: 将一个或多个通知绑定到一个或多个建筑物
+      parameters:
+      - description: 绑定信息
+        in: body
+        name: bindingInfo
+        required: true
+        schema:
+          type: object
+      - description: 通知ID列表
+        in: body
+        name: noticeIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      - description: 建筑ID列表
+        in: body
+        name: buildingIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 绑定结果信息，包含成功绑定的关系和已存在的绑定
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 通知或建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 绑定通知到建筑
+      tags:
+      - Notice-Building
+  /admin/notice-building/buildings:
+    get:
+      consumes:
+      - application/json
+      description: 根据通知ID获取所有与之绑定的建筑物信息
+      parameters:
+      - description: 通知ID
+        in: query
+        name: noticeId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 建筑列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的通知ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 通知不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取通知绑定的建筑
+      tags:
+      - Notice-Building
+  /admin/notice-building/notices:
+    get:
+      consumes:
+      - application/json
+      description: 根据建筑ID获取所有与之绑定的通知信息
+      parameters:
+      - description: 建筑ID
+        in: query
+        name: buildingId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 通知列表信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 无效的建筑ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取建筑绑定的通知
+      tags:
+      - Notice-Building
+  /admin/notice-building/unbind:
+    post:
+      consumes:
+      - application/json
+      description: 解除一个通知与多个建筑物的绑定关系
+      parameters:
+      - description: 解绑信息
+        in: body
+        name: unbindInfo
+        required: true
+        schema:
+          type: object
+      - description: 通知ID
+        in: body
+        name: noticeId
+        required: true
+        schema:
+          type: integer
+      - description: 建筑ID列表
+        in: body
+        name: buildingIds
+        required: true
+        schema:
+          items:
+            type: integer
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解绑成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 输入参数错误或建筑未绑定
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 通知或建筑不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 解绑通知与建筑
+      tags:
+      - Notice-Building
+  /admin/notice/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取通知详细信息
+      parameters:
+      - description: 通知ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回通知详细信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 通知不存在
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个通知
+      tags:
+      - Notice
+  /admin/notices:
+    post:
+      consumes:
+      - application/json
+      description: 批量创建多个通知
+      parameters:
+      - description: 通知信息数组
+        in: body
+        name: notices
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/http_base_controller.CreateNoticeRequest'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回创建的通知信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 批量创建通知
+      tags:
+      - Notice
+  /admin/super_admin:
+    delete:
+      consumes:
+      - application/json
+      description: 根据ID批量删除超级管理员账号(不能删除自己)
+      parameters:
+      - description: 要删除的超级管理员ID列表
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.SuperAdminDeleteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除超级管理员
+      tags:
+      - SuperAdmin
+    get:
+      consumes:
+      - application/json
+      description: 分页获取所有超级管理员用户列表
+      parameters:
+      - description: 搜索关键词(邮箱等)
+        in: query
+        name: search
+        type: string
+      - description: 每页条数, 默认为10
+        in: query
+        name: pageSize
+        type: integer
+      - description: 页码, 默认为1
+        in: query
+        name: pageNum
+        type: integer
+      - description: 是否降序排序, 默认为false
+        in: query
+        name: desc
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取超级管理员列表
+      tags:
+      - SuperAdmin
+    post:
+      consumes:
+      - application/json
+      description: 创建新的超级管理员账号
+      parameters:
+      - description: 超级管理员信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.SuperAdminCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 创建超级管理员
+      tags:
+      - SuperAdmin
+  /admin/super_admin/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取超级管理员详细信息
+      parameters:
+      - description: 超级管理员ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取单个超级管理员信息
+      tags:
+      - SuperAdmin
+  /admin/super_admin/reset_password:
+    post:
+      consumes:
+      - application/json
+      description: 根据ID重置指定超级管理员的密码
+      parameters:
+      - description: 重置密码信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.SuperAdminResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 重置超级管理员密码
+      tags:
+      - SuperAdmin
+  /admin/super_admin/update_password:
+    post:
+      consumes:
+      - application/json
+      description: 超级管理员修改自己的密码
+      parameters:
+      - description: 密码修改信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http_base_controller.SuperAdminChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改自己的密码
+      tags:
+      - SuperAdmin
+  /building_admin/login:
+    post:
+      consumes:
+      - application/json
+      description: 建筑管理员通过邮箱和密码登录系统
+      parameters:
+      - description: 登录信息
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      - description: 邮箱
+        in: formData
+        name: email
+        required: true
+        type: string
+      - description: 密码
+        in: formData
+        name: password
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 包含token和登录成功消息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 登录失败信息
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: 认证失败
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - None: []
+      summary: 建筑管理员登录
+      tags:
+      - BuildingAdmin
+  /device/client/advertisements:
+    get:
+      consumes:
+      - application/json
+      description: 根据设备ID获取分配给该设备的广告
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回设备广告列表
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 未找到设备
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - JWT: []
+      summary: 获取设备广告
+      tags:
+      - Device
+  /device/client/health_test:
+    post:
+      consumes:
+      - application/json
+      description: 设备上报健康状态，用于检测设备是否在线
+      parameters:
+      - description: 健康测试数据
+        in: body
+        name: data
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 健康测试成功响应
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - JWT: []
+      summary: 设备健康测试
+      tags:
+      - Device
+  /device/client/notices:
+    get:
+      consumes:
+      - application/json
+      description: 根据设备ID获取分配给该设备的通知
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回设备通知列表
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 未找到设备
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - JWT: []
+      summary: 获取设备通知
+      tags:
+      - Device
+  /device/login:
+    post:
+      consumes:
+      - application/json
+      description: 设备登录获取JWT令牌
+      parameters:
+      - description: 登录信息
+        in: body
+        name: login
+        required: true
+        schema:
+          type: object
+      - description: 设备ID
+        in: formData
+        name: deviceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回登录令牌和设备信息
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 错误信息
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: 认证失败
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - None: []
+      summary: 设备登录
+      tags:
+      - Device
+securityDefinitions:
+  BearerAuth:
+    description: 输入带有Bearer前缀的用户认证token
+    in: header
+    name: Authorization
+    type: apiKey
+  DeviceAuth:
+    description: 输入带有Bearer前缀的设备认证token
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
