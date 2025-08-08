@@ -1,6 +1,10 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-1.0.0}
+    image: iboard_http_service:${VERSION:-1.0.0}
     container_name: iboard_http_service
     restart: always
     ports:
