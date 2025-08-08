@@ -7,6 +7,7 @@ import (
 	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils"
 	"github.com/gin-gonic/gin"
 	jwt "github.com/golang-jwt/jwt/v4"
@@ -122,12 +123,16 @@ func HandleFuncSuperAdmin(container *container.ServiceContainer, method string) 
 // @Router       /admin/login [post]
 // @Security     None
 func (c *SuperAdminController) Login() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
 	var form struct {
 		Email    string `json:"email" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		log.Warn("超级管理员登录表单无效 | %v | 错误: %v", requestID, err)
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
@@ -138,7 +143,10 @@ func (c *SuperAdminController) Login() {
 	form.Email = strings.TrimSpace(form.Email)
 	form.Password = strings.TrimSpace(form.Password)
 
+	log.Info("超级管理员尝试登录 | %v | 邮箱: %s", requestID, form.Email)
+
 	if err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).CheckPassword(form.Email, form.Password); err != nil {
+		log.Warn("超级管理员登录失败 | %v | 邮箱: %s | 错误: %v", requestID, form.Email, err)
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "login failed",
@@ -149,6 +157,7 @@ func (c *SuperAdminController) Login() {
 	// Get admin info
 	admin, err := c.Container.GetService("superAdmin").(base_services.InterfaceSuperAdminService).GetSuperAdminByEmail(form.Email)
 	if err != nil {
+		log.Error("获取超级管理员信息失败 | %v | 邮箱: %s | 错误: %v", requestID, form.Email, err)
 		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "failed to get admin info",
@@ -159,6 +168,7 @@ func (c *SuperAdminController) Login() {
 	// Generate token
 	token, err := c.Container.GetService("jwt").(base_services.IJWTService).GenerateSuperAdminToken(admin)
 	if err != nil {
+		log.Error("生成超级管理员令牌失败 | %v | 管理员ID: %d | 错误: %v", requestID, admin.ID, err)
 		c.Ctx.JSON(500, gin.H{
 			"error":   err.Error(),
 			"message": "failed to generate token",
@@ -166,6 +176,7 @@ func (c *SuperAdminController) Login() {
 		return
 	}
 
+	log.Info("超级管理员登录成功 | %v | 管理员ID: %d", requestID, admin.ID)
 	c.Ctx.JSON(200, gin.H{
 		"message": "login success",
 		"token":   token,

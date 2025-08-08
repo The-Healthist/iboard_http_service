@@ -6,6 +6,7 @@ import (
 
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,12 +56,16 @@ func HandleFuncBuildingAdminAuth(container *container.ServiceContainer, method s
 // @Router       /building_admin/login [post]
 // @Security     None
 func (c *BuildingAdminAuthController) Login() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
 	var loginDTO struct {
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&loginDTO); err != nil {
+		log.Warn("楼宇管理员登录表单无效 | %v | 错误: %v", requestID, err)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid input",
 			"details": err.Error(),
@@ -72,9 +77,12 @@ func (c *BuildingAdminAuthController) Login() {
 	loginDTO.Email = strings.TrimSpace(loginDTO.Email)
 	loginDTO.Password = strings.TrimSpace(loginDTO.Password)
 
+	log.Info("楼宇管理员尝试登录 | %v | 邮箱: %s", requestID, loginDTO.Email)
+
 	// Validate credentials
 	buildingAdmin, err := c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).GetByEmail(loginDTO.Email)
 	if err != nil {
+		log.Warn("楼宇管理员登录失败，邮箱不存在 | %v | 邮箱: %s", requestID, loginDTO.Email)
 		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Invalid credentials",
 		})
@@ -83,6 +91,7 @@ func (c *BuildingAdminAuthController) Login() {
 
 	// Validate password
 	if !c.Container.GetService("buildingAdmin").(base_services.InterfaceBuildingAdminService).ValidatePassword(buildingAdmin, loginDTO.Password) {
+		log.Warn("楼宇管理员登录失败，密码错误 | %v | 管理员ID: %d", requestID, buildingAdmin.ID)
 		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Invalid credentials",
 		})
@@ -92,12 +101,14 @@ func (c *BuildingAdminAuthController) Login() {
 	// Generate token
 	token, err := c.Container.GetService("jwt").(base_services.IJWTService).GenerateBuildingAdminToken(buildingAdmin)
 	if err != nil {
+		log.Error("生成楼宇管理员令牌失败 | %v | 管理员ID: %d | 错误: %v", requestID, buildingAdmin.ID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to generate token",
 		})
 		return
 	}
 
+	log.Info("楼宇管理员登录成功 | %v | 管理员ID: %d", requestID, buildingAdmin.ID)
 	c.Ctx.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",
 		"token":   token,

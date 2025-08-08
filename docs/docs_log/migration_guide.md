@@ -155,20 +155,29 @@ func AuthMiddleware() gin.HandlerFunc {
 3. `internal/infrastructure/database/database.go`
 4. `internal/infrastructure/redis/redis.go`
 5. `internal/domain/services/container/service_container.go`
+6. `internal/app/controller/base/upload_control.go`
+7. `internal/domain/services/base/notice_sync_service.go`
+8. `internal/domain/services/base/building_service.go`
+9. `internal/app/controller/base/device_controller.go`
+10. `internal/domain/services/building_admin/file_building_admin_service.go`
+11. `internal/domain/services/relationship/device_building_service.go`
+12. `internal/domain/services/relationship/notice_building_service.go`
+13. `internal/domain/services/relationship/file_advertisement_service.go`
+14. `internal/domain/services/relationship/file_notice_service.go`
 
 ## 待迁移的文件
 
 以下是需要继续迁移的文件：
 
 1. 控制器文件：
-   - `internal/app/controller/base/`
+   - 其他 `internal/app/controller/base/` 下的控制器
    - `internal/app/controller/building_admin/`
    - `internal/app/controller/relationship/`
 
 2. 服务文件：
-   - `internal/domain/services/base/`
-   - `internal/domain/services/building_admin/`
-   - `internal/domain/services/relationship/`
+   - 其他 `internal/domain/services/base/` 下的服务
+   - 其他 `internal/domain/services/building_admin/` 下的服务
+   - 其他 `internal/domain/services/relationship/` 下的服务
 
 ## 注意事项
 

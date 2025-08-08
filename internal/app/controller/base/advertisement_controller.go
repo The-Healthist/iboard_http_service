@@ -8,6 +8,7 @@ import (
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
 	databases "github.com/The-Healthist/iboard_http_service/internal/infrastructure/database"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
 	"github.com/gin-gonic/gin"
@@ -102,9 +103,12 @@ type CreateAdvertisementRequest struct {
 // @Router       /admin/advertisement [post]
 // @Security     BearerAuth
 func (c *AdvertisementController) Create() {
-	var form CreateAdvertisementRequest
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
 
+	var form CreateAdvertisementRequest
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		log.Warn("创建广告表单无效 | %v | 错误: %v", requestID, err)
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "invalid form",
@@ -112,51 +116,41 @@ func (c *AdvertisementController) Create() {
 		return
 	}
 
-	// Set default values for startTime, endTime, and status
-	now := time.Now()
-	startTime := now
-	endTime := now.AddDate(1, 0, 0) // 1 year from now
-	status := field.Status("active")
+	log.Info("尝试创建广告 | %v | 标题: %s", requestID, form.Title)
 
-	if form.StartTime != nil {
-		startTime = *form.StartTime
-	}
-	if form.EndTime != nil {
-		endTime = *form.EndTime
-	}
-	if form.Status != "" {
-		status = form.Status
-	}
-
-	// If path is provided, find the corresponding file
-	var fileID *uint
+	// Check if file exists
+	var file base_models.File
 	if form.Path != "" {
-		var file base_models.File
 		if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
+			log.Warn("创建广告失败，文件不存在 | %v | 路径: %s", requestID, form.Path)
 			c.Ctx.JSON(400, gin.H{
 				"error":   err.Error(),
 				"message": "file not found",
 			})
 			return
 		}
-		fileID = &file.ID
 	}
 
 	advertisement := &base_models.Advertisement{
 		Title:       form.Title,
 		Description: form.Description,
 		Type:        form.Type,
-		Status:      status,
+		Status:      form.Status,
 		Duration:    form.Duration,
 		Priority:    form.Priority,
-		StartTime:   startTime,
-		EndTime:     endTime,
+		StartTime:   *form.StartTime, // 使用指针值
+		EndTime:     *form.EndTime,   // 使用指针值
 		Display:     form.Display,
-		FileID:      fileID,
 		IsPublic:    form.IsPublic,
 	}
 
+	// Set file ID if file exists
+	if file.ID != 0 {
+		advertisement.FileID = &file.ID
+	}
+
 	if err := c.Container.GetService("advertisement").(base_services.InterfaceAdvertisementService).Create(advertisement); err != nil {
+		log.Error("创建广告失败 | %v | 标题: %s | 错误: %v", requestID, form.Title, err)
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "create advertisement failed",
@@ -164,14 +158,11 @@ func (c *AdvertisementController) Create() {
 		return
 	}
 
-	// Reload advertisement to get associated file information
-	if err := databases.DB_CONN.Preload("File").First(advertisement, advertisement.ID).Error; err != nil {
-		c.Ctx.JSON(200, gin.H{
-			"message": "create advertisement success, but failed to load file info",
-			"data":    advertisement,
-		})
-		return
-	}
+	log.Info("创建广告成功 | %v | 广告ID: %d", requestID, advertisement.ID)
+	c.Ctx.JSON(200, gin.H{
+		"message": "create advertisement success",
+		"data":    advertisement,
+	})
 }
 
 // 2.CreateMany 批量创建广告

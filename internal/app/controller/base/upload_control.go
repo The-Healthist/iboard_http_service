@@ -2,7 +2,6 @@ package http_base_controller
 
 import (
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -13,6 +12,7 @@ import (
 	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
@@ -62,12 +62,15 @@ func HandleFuncUpload(container *container.ServiceContainer, method string) gin.
 }
 
 func (c *UploadController) GetUploadParams() {
-	log.Println("Processing upload params request")
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
+	log.Info("处理上传参数请求 | %v", requestID)
 
 	// Get JWT claims
 	claims, exists := c.Ctx.Get("claims")
 	if !exists {
-		log.Println("No JWT claims found in context")
+		log.Warn("未找到JWT声明 | %v", requestID)
 		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Unauthorized",
 		})
@@ -76,7 +79,7 @@ func (c *UploadController) GetUploadParams() {
 
 	mapClaims, ok := claims.(jwt.MapClaims)
 	if !ok {
-		log.Println("Invalid JWT claims format")
+		log.Warn("无效的JWT声明格式 | %v", requestID)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Invalid token claims format",
 		})
@@ -99,9 +102,9 @@ func (c *UploadController) GetUploadParams() {
 			if email, ok := mapClaims["email"].(string); ok {
 				uploaderEmail = email
 			}
-			log.Printf("Identified as SuperAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
+			log.Info("识别为超级管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
 		} else {
-			log.Println("Invalid admin ID in token")
+			log.Warn("令牌中的管理员ID无效 | %v", requestID)
 			c.Ctx.JSON(http.StatusBadRequest, gin.H{
 				"error": "Invalid admin ID",
 			})
@@ -115,16 +118,16 @@ func (c *UploadController) GetUploadParams() {
 			if email, ok := mapClaims["email"].(string); ok {
 				uploaderEmail = email
 			}
-			log.Printf("Identified as BuildingAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
+			log.Info("识别为建筑管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
 		} else {
-			log.Println("Invalid building admin ID in token")
+			log.Warn("令牌中的建筑管理员ID无效 | %v", requestID)
 			c.Ctx.JSON(http.StatusBadRequest, gin.H{
 				"error": "Invalid building admin ID",
 			})
 			return
 		}
 	} else {
-		log.Println("Invalid uploader type")
+		log.Warn("无效的上传者类型 | %v", requestID)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Invalid uploader type",
 		})
@@ -133,7 +136,7 @@ func (c *UploadController) GetUploadParams() {
 
 	// Save uploader info to cache
 	if err := c.Container.GetService("upload").(base_services.IUploadService).SaveUploaderInfo(uploaderID, uploaderType, uploaderEmail); err != nil {
-		log.Printf("Failed to save uploader info: %v\n", err)
+		log.Error("保存上传者信息失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to process uploader info",
 		})
@@ -146,7 +149,7 @@ func (c *UploadController) GetUploadParams() {
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Invalid request parameters: %v\n", err)
+		log.Warn("无效的请求参数 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Missing required parameters",
 		})
@@ -163,7 +166,7 @@ func (c *UploadController) GetUploadParams() {
 	// Get upload policy
 	policy, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParams(fullPath)
 	if err != nil {
-		log.Printf("Failed to get upload params: %v\n", err)
+		log.Error("获取上传参数失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
@@ -172,50 +175,53 @@ func (c *UploadController) GetUploadParams() {
 
 	// Save filename mapping
 	if err := c.Container.GetService("upload").(base_services.IUploadService).SaveFileNameMapping(newFileName, fullPath); err != nil {
-		log.Printf("Failed to save filename mapping: %v\n", err)
+		log.Error("保存文件名映射失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to save filename mapping",
 		})
 		return
 	}
 
-	log.Printf("Successfully generated upload params for file: %s\n", fullPath)
+	log.Info("成功生成文件上传参数 | %v | 文件: %s", requestID, fullPath)
 	c.Ctx.JSON(http.StatusOK, gin.H{
 		"data": policy,
 	})
 }
 
 func (c *UploadController) UploadCallback() {
-	log.Println("Received upload callback request")
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
+	log.Info("接收到上传回调请求 | %v", requestID)
 
 	// Get content-md5 from header
 	contentMD5 := c.Ctx.GetHeader("content-md5")
-	log.Printf("Content-MD5 from header: %s\n", contentMD5)
+	log.Debug("Content-MD5头信息 | %v | %s", requestID, contentMD5)
 
 	// Read and log raw request body
 	body, err := io.ReadAll(c.Ctx.Request.Body)
 	if err != nil {
-		log.Printf("Failed to read request body: %v\n", err)
+		log.Error("读取请求体失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Failed to read request body",
 		})
 		return
 	}
-	log.Printf("Raw request body: %s\n", string(body))
+	log.Debug("原始请求体 | %v | %s", requestID, string(body))
 
 	// Restore request body for form parsing
 	c.Ctx.Request.Body = io.NopCloser(strings.NewReader(string(body)))
 
 	// Parse form data
 	if err := c.Ctx.Request.ParseForm(); err != nil {
-		log.Printf("Failed to parse form: %v\n", err)
+		log.Error("解析表单失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Failed to parse form data",
 		})
 		return
 	}
 
-	log.Printf("Form values: %+v\n", c.Ctx.Request.Form)
+	log.Debug("表单值 | %v | %+v", requestID, c.Ctx.Request.Form)
 
 	// Get callback data
 	objectPath := c.Ctx.Request.Form.Get("object")
@@ -228,40 +234,40 @@ func (c *UploadController) UploadCallback() {
 	height, _ := strconv.Atoi(heightStr)
 	width, _ := strconv.Atoi(widthStr)
 
-	log.Printf("Parsed callback data: object=%s, size=%d, mimeType=%s, height=%d, width=%d\n",
-		objectPath, size, mimeType, height, width)
+	log.Debug("解析的回调数据 | %v | object=%s, size=%d, mimeType=%s, height=%d, width=%d",
+		requestID, objectPath, size, mimeType, height, width)
 
 	// Get stored dirPath from Redis
 	dirPath, err := c.Container.GetService("upload").(base_services.IUploadService).GetLatestDirPath()
 	if err != nil {
-		log.Printf("Failed to get stored dirPath from Redis: %v\n", err)
+		log.Error("从Redis获取存储的dirPath失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to get stored dirPath",
 		})
 		return
 	}
-	log.Printf("Retrieved stored dirPath from Redis: %s\n", dirPath)
+	log.Debug("从Redis检索到存储的dirPath | %v | %s", requestID, dirPath)
 
 	// Compare paths
 	if objectPath != dirPath {
-		log.Printf("Path mismatch: callback=%s, stored=%s\n", objectPath, dirPath)
+		log.Warn("路径不匹配 | %v | 回调=%s, 存储=%s", requestID, objectPath, dirPath)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Path mismatch",
 		})
 		return
 	}
-	log.Println("Path validation successful")
+	log.Debug("路径验证成功 | %v", requestID)
 
 	// Get stored uploader info from cache
 	uploaderID, uploaderType, uploaderEmail, err := c.Container.GetService("upload").(base_services.IUploadService).GetLatestUploaderInfo()
 	if err != nil {
-		log.Printf("Failed to get uploader info from cache: %v\n", err)
+		log.Error("从缓存获取上传者信息失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to get uploader info",
 		})
 		return
 	}
-	log.Printf("Retrieved uploader info: ID=%d, Type=%s, Email=%s\n", uploaderID, uploaderType, uploaderEmail)
+	log.Debug("检索到上传者信息 | %v | ID=%d, 类型=%s, 邮箱=%s", requestID, uploaderID, uploaderType, uploaderEmail)
 
 	// Create file record
 	var fileUploaderType field.FileUploaderType
@@ -273,7 +279,7 @@ func (c *UploadController) UploadCallback() {
 
 	// Construct full path
 	fullPath := os.Getenv("HOST") + "/" + objectPath
-	log.Printf("Constructed full file path: %s\n", fullPath)
+	log.Debug("构建完整文件路径 | %v | %s", requestID, fullPath)
 
 	file := &base_models.File{
 		Path:         fullPath,
@@ -286,16 +292,16 @@ func (c *UploadController) UploadCallback() {
 		UploaderID:   uploaderID,
 	}
 
-	log.Printf("Creating file record with details: %+v\n", file)
+	log.Debug("创建文件记录 | %v | 详情: %+v", requestID, file)
 
 	if err := c.Container.GetService("file").(base_services.InterfaceFileService).Create(file); err != nil {
-		log.Printf("Failed to create file record: %v\n", err)
+		log.Error("创建文件记录失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create file record",
 		})
 		return
 	}
-	log.Println("File record created successfully")
+	log.Info("文件记录创建成功 | %v | 文件ID: %d", requestID, file.ID)
 
 	// Return success response
 	c.Ctx.JSON(http.StatusOK, gin.H{
@@ -303,17 +309,24 @@ func (c *UploadController) UploadCallback() {
 	})
 }
 func (c *UploadController) UploadCallbackSync() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
+	log.Info("接收到同步上传回调请求 | %v", requestID)
 	c.Ctx.JSON(http.StatusOK, gin.H{
 		"Status": "OK",
 	})
 }
 func (c *UploadController) GetUploadParamsSync() {
-	log.Println("Processing upload params request")
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
+	log.Info("处理同步上传参数请求 | %v", requestID)
 
 	// Get JWT claims
 	claims, exists := c.Ctx.Get("claims")
 	if !exists {
-		log.Println("No JWT claims found in context")
+		log.Warn("未找到JWT声明 | %v", requestID)
 		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Unauthorized",
 		})
@@ -322,7 +335,7 @@ func (c *UploadController) GetUploadParamsSync() {
 
 	mapClaims, ok := claims.(jwt.MapClaims)
 	if !ok {
-		log.Println("Invalid JWT claims format")
+		log.Warn("无效的JWT声明格式 | %v", requestID)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Invalid token claims format",
 		})
@@ -345,9 +358,9 @@ func (c *UploadController) GetUploadParamsSync() {
 			if email, ok := mapClaims["email"].(string); ok {
 				uploaderEmail = email
 			}
-			log.Printf("Identified as SuperAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
+			log.Info("识别为超级管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
 		} else {
-			log.Println("Invalid admin ID in token")
+			log.Warn("令牌中的管理员ID无效 | %v", requestID)
 			c.Ctx.JSON(http.StatusBadRequest, gin.H{
 				"error": "Invalid admin ID",
 			})
@@ -361,16 +374,16 @@ func (c *UploadController) GetUploadParamsSync() {
 			if email, ok := mapClaims["email"].(string); ok {
 				uploaderEmail = email
 			}
-			log.Printf("Identified as BuildingAdmin with ID: %d, Email: %s\n", uploaderID, uploaderEmail)
+			log.Info("识别为建筑管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
 		} else {
-			log.Println("Invalid building admin ID in token")
+			log.Warn("令牌中的建筑管理员ID无效 | %v", requestID)
 			c.Ctx.JSON(http.StatusBadRequest, gin.H{
 				"error": "Invalid building admin ID",
 			})
 			return
 		}
 	} else {
-		log.Println("Invalid uploader type")
+		log.Warn("无效的上传者类型 | %v", requestID)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Invalid uploader type",
 		})
@@ -379,7 +392,7 @@ func (c *UploadController) GetUploadParamsSync() {
 
 	// Save uploader info to cache
 	if err := c.Container.GetService("upload").(base_services.IUploadService).SaveUploaderInfo(uploaderID, uploaderType, uploaderEmail); err != nil {
-		log.Printf("Failed to save uploader info: %v\n", err)
+		log.Error("保存上传者信息失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to process uploader info",
 		})
@@ -392,7 +405,7 @@ func (c *UploadController) GetUploadParamsSync() {
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Invalid request parameters: %v\n", err)
+		log.Warn("无效的请求参数 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "Missing required parameters",
 		})
@@ -409,7 +422,7 @@ func (c *UploadController) GetUploadParamsSync() {
 	// Get upload policy
 	policy, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsSync(fullPath)
 	if err != nil {
-		log.Printf("Failed to get upload params: %v\n", err)
+		log.Error("获取上传参数失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
@@ -418,14 +431,14 @@ func (c *UploadController) GetUploadParamsSync() {
 
 	// Save filename mapping
 	if err := c.Container.GetService("upload").(base_services.IUploadService).SaveFileNameMapping(newFileName, fullPath); err != nil {
-		log.Printf("Failed to save filename mapping: %v\n", err)
+		log.Error("保存文件名映射失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to save filename mapping",
 		})
 		return
 	}
 
-	log.Printf("Successfully generated upload params for file: %s\n", fullPath)
+	log.Info("成功生成文件上传参数 | %v | 文件: %s", requestID, fullPath)
 	c.Ctx.JSON(http.StatusOK, gin.H{
 		"data": policy,
 	})

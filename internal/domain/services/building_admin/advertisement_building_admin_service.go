@@ -6,6 +6,7 @@ import (
 	"github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	relationship_service "github.com/The-Healthist/iboard_http_service/internal/domain/services/relationship"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
 	"gorm.io/gorm"
 )
@@ -29,6 +30,7 @@ func NewBuildingAdminAdvertisementService(
 	buildingAdminService relationship_service.InterfaceBuildingAdminBuildingService,
 	fileService base_services.InterfaceFileService,
 ) InterfaceBuildingAdminAdvertisementService {
+	log.Info("初始化楼宇管理员广告服务")
 	return &BuildingAdminAdvertisementService{
 		db:                   db,
 		buildingAdminService: buildingAdminService,
@@ -37,18 +39,23 @@ func NewBuildingAdminAdvertisementService(
 }
 
 func (s *BuildingAdminAdvertisementService) Create(advertisement *models.Advertisement, email string) error {
+	log.Info("楼宇管理员尝试创建广告 | 管理员: %s | 标题: %s", email, advertisement.Title)
+
 	// 获取管理员的建筑物
 	buildings, err := s.buildingAdminService.GetBuildingsByAdminEmail(email)
 	if err != nil {
+		log.Error("获取楼宇管理员建筑物失败 | 管理员: %s | 错误: %v", email, err)
 		return err
 	}
 
 	// 验证文件是否存在且上传者类型是否正确
 	var file models.File
 	if err := s.db.First(&file, advertisement.FileID).Error; err != nil {
+		log.Warn("创建广告失败，文件不存在 | 管理员: %s | 文件ID: %v", email, advertisement.FileID)
 		return errors.New("file not found")
 	}
 	if file.UploaderType != field.UploaderTypeBuildingAdmin {
+		log.Warn("创建广告失败，文件上传者类型错误 | 管理员: %s | 文件ID: %v | 上传者类型: %s", email, advertisement.FileID, file.UploaderType)
 		return errors.New("file uploader type must be buildingAdmin")
 	}
 
@@ -57,14 +64,17 @@ func (s *BuildingAdminAdvertisementService) Create(advertisement *models.Adverti
 		advertisement.IsPublic = false
 
 		if err := tx.Create(advertisement).Error; err != nil {
+			log.Error("创建广告记录失败 | 管理员: %s | 标题: %s | 错误: %v", email, advertisement.Title, err)
 			return err
 		}
 
 		// 自动关联到管理员的所有建筑物
 		if err := tx.Model(advertisement).Association("Buildings").Append(&buildings); err != nil {
+			log.Error("关联广告到建筑物失败 | 管理员: %s | 广告ID: %d | 错误: %v", email, advertisement.ID, err)
 			return err
 		}
 
+		log.Info("楼宇管理员创建广告成功 | 管理员: %s | 广告ID: %d | 关联建筑数量: %d", email, advertisement.ID, len(buildings))
 		return nil
 	})
 }

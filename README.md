@@ -266,3 +266,43 @@ iboard_http_service/
 ## 许可证
 
 版权所有 © 2024 iBoard 开发团队 
+
+# iBoard HTTP Service
+
+## Docker镜像版本管理
+
+本项目支持为Docker镜像添加版本号标签，方便追踪和管理不同版本的部署。
+
+### 构建带版本号的Docker镜像
+
+使用提供的构建脚本可以生成带有指定版本号的Docker镜像：
+
+```bash
+# 使用默认版本号(1.0.0)构建
+./scripts/build/docker-build.sh
+
+# 指定版本号构建
+./scripts/build/docker-build.sh 1.2.3
+```
+
+构建完成后，将生成格式为`iboard_http_service:版本号`的Docker镜像。
+
+### 在docker-compose中使用版本号
+
+也可以直接通过环境变量设置版本号：
+
+```bash
+# 设置版本号环境变量
+export VERSION=1.2.3
+
+# 构建并启动服务
+docker-compose up -d --build
+```
+
+### 查看镜像版本号
+
+可以通过以下命令查看镜像的版本号标签：
+
+```bash
+docker inspect iboard_http_service:1.0.0 | grep -A 3 Labels
+``` 

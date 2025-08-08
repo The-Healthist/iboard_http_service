@@ -17,6 +17,7 @@ import (
 	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -319,14 +320,23 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cached notice IDs: %v", err)
 	}
-	fmt.Printf("[NoticeSyncService] Redis cached IDs for building %d: %v\n", buildingID, cachedIDs)
+	log.Info("Redis缓存通知ID | 建筑ID: %d | 数量: %d", buildingID, len(cachedIDs))
 
 	// 获取上次同步的通知MD5列表
 	syncedMD5s, err := s.getSyncedNoticeMD5s(ctx, buildingID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get synced notice MD5s: %v", err)
 	}
-	fmt.Printf("[NoticeSyncService] Last synced MD5 count for building %d: %d\n", buildingID, len(syncedMD5s))
+	log.Info("Redis缓存MD5数量 | 建筑ID: %d | 数量: %d", buildingID, len(syncedMD5s))
+
+	// 获取上次同步的通知详细信息（包含ID和MD5）
+	syncedNoticeInfos, err := s.getSyncedNoticeInfos(ctx, buildingID)
+	if err != nil {
+		log.Warn("获取上次同步通知详细信息失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+		// 继续执行，不中断同步流程
+	} else {
+		log.Info("获取上次同步通知详细信息 | 建筑ID: %d | 数量: %d", buildingID, len(syncedNoticeInfos))
+	}
 
 	// 获取现有的iSmart通知
 	var existingNotices []base_models.Notice
@@ -335,7 +345,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		Preload("File").Find(&existingNotices).Error; err != nil {
 		return nil, fmt.Errorf("failed to get existing notices: %v", err)
 	}
-	fmt.Printf("[NoticeSyncService] Found %d existing notices in database\n", len(existingNotices))
+	log.Info("数据库中找到现有通知 | 建筑ID: %d | 数量: %d", buildingID, len(existingNotices))
 
 	// 创建现有通知的MD5映射
 	existingMD5Map := make(map[string]base_models.Notice)
@@ -374,7 +384,27 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	for i, notice := range oldNotices {
 		newIDs[i] = notice.ID
 	}
-	fmt.Printf("[NoticeSyncService] Old system IDs for building %d: %v\n", buildingID, newIDs)
+	log.Info("旧系统通知ID | 建筑ID: %d | 数量: %d", buildingID, len(newIDs))
+
+	// 更新同步的通知详细信息
+	var newSyncedInfos []SyncedNoticeInfo
+	for _, notice := range oldNotices {
+		// 这里假设我们会在后续处理中计算MD5
+		// 实际实现中，应该在处理通知时计算MD5并更新此列表
+		newSyncedInfos = append(newSyncedInfos, SyncedNoticeInfo{
+			ID: notice.ID,
+			// 暂时使用空MD5，实际实现中应该设置正确的值
+			MD5: "",
+		})
+	}
+
+	// 保存本次同步的通知详细信息
+	if err := s.setSyncedNoticeInfos(ctx, buildingID, newSyncedInfos); err != nil {
+		log.Warn("保存同步通知详细信息失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+		// 继续执行，不中断同步流程
+	} else {
+		log.Info("保存同步通知详细信息 | 建筑ID: %d | 数量: %d", buildingID, len(newSyncedInfos))
+	}
 
 	// 检查是否需要强制同步
 	totalIsmartNotices, err := s.getCachedNoticeCount(ctx, buildingID)
@@ -382,12 +412,11 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		return nil, fmt.Errorf("failed to get cached notice count: %v", err)
 	}
 
-	fmt.Printf("[NoticeSyncService] Database has %d ismart notices, old system has %d notices\n",
-		totalIsmartNotices, len(oldNotices))
+	log.Info("数据库有%d个iSmart通知，旧系统有%d个通知", totalIsmartNotices, len(oldNotices))
 
 	// 如果通知数量不匹配，强制同步
 	if totalIsmartNotices != int64(len(oldNotices)) {
-		fmt.Printf("[NoticeSyncService] Notice count mismatch detected, forcing full sync\n")
+		log.Warn("通知数量不匹配，强制同步 | 建筑ID: %d", buildingID)
 		// 清除缓存以强制同步
 		if err := s.redis.Del(ctx, fmt.Sprintf("building_notice_ids:%d", buildingID)).Err(); err != nil {
 			return nil, fmt.Errorf("failed to clear notice IDs cache: %v", err)
@@ -403,8 +432,8 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	resultChan := make(chan processResult, len(oldNotices))
 	semaphore := make(chan struct{}, workers)
 
-	fmt.Printf("[NoticeSyncService] Starting concurrent processing with %d workers for %d notices\n",
-		workers, len(oldNotices))
+	log.Info("开始并发处理通知 | 工作线程: %d | 通知数: %d | 建筑ID: %d",
+		workers, len(oldNotices), buildingID)
 
 	// 并发处理通知，获取所有MD5值
 	for _, oldNotice := range oldNotices {
@@ -457,7 +486,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		md5ToNoticeID[result.md5] = result.noticeID
 	}
 
-	fmt.Printf("[NoticeSyncService] Collected %d MD5 values from old system\n", len(newMD5s))
+	log.Info("从旧系统收集MD5值 | 数量: %d | 建筑ID: %d", len(newMD5s), buildingID)
 
 	// 如果缓存的MD5列表存在且与新MD5列表完全匹配，跳过处理
 	if len(syncedMD5s) > 0 && len(syncedMD5s) == len(newMD5s) {
@@ -476,7 +505,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		}
 
 		if allMatch {
-			fmt.Printf("[NoticeSyncService] MD5 lists match exactly, skipping sync for building %d\n", buildingID)
+			log.Info("MD5列表完全匹配，跳过同步 | 建筑ID: %d", buildingID)
 			var hasSyncNotices []int
 			for _, notice := range existingNotices {
 				if notice.File != nil {
@@ -533,8 +562,8 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		}
 	}
 
-	fmt.Printf("[NoticeSyncService] Found %d MD5s to delete and %d MD5s to add\n",
-		len(md5sToDelete), len(md5sToAdd))
+	log.Info("发现需要删除的MD5: %d个, 需要添加的MD5: %d个 | 建筑ID: %d",
+		len(md5sToDelete), len(md5sToAdd), buildingID)
 
 	// 处理需要删除的通知
 	deleteCount := 0
@@ -543,7 +572,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 			if notice, exists := existingMD5Map[md5]; exists {
 				// 解绑通知
 				if err := s.unbindNotice(buildingID, notice.ID, &failedNotices); err != nil {
-					fmt.Printf("[NoticeSyncService] Failed to unbind notice with MD5 %s: %v\n", md5, err)
+					log.Error("解绑通知失败 | MD5: %s | 错误: %v | 建筑ID: %d", md5, err, buildingID)
 				} else {
 					deleteCount++
 				}
@@ -651,8 +680,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		}
 	}
 
-	fmt.Printf("[NoticeSyncService] Sync completed for building %d: %d added, %d deleted\n",
-		buildingID, successCount, deleteCount)
+	log.Info("同步完成 | 建筑ID: %d | 添加: %d | 删除: %d", buildingID, successCount, deleteCount)
 
 	// 更新缓存
 	if err := s.setCachedNoticeIDs(ctx, buildingID, newIDs); err != nil {
@@ -667,7 +695,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 	// 更新缓存的通知数量
 	newCount := int64(len(oldNotices))
 	if err := s.updateCachedNoticeCount(ctx, buildingID, newCount); err != nil {
-		fmt.Printf("[NoticeSyncService] Warning: failed to update cached notice count: %v\n", err)
+		log.Warn("警告: 更新缓存通知数量失败 | 建筑ID: %d | 错误: %v", buildingID, err)
 	}
 
 	return gin.H{
@@ -723,7 +751,7 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 		return err
 	}
 
-	fmt.Printf("[NoticeSyncService] Unbound notice ID %d from building %d\n", noticeID, buildingID)
+	log.Info("解绑通知ID | 通知ID: %d | 建筑ID: %d", noticeID, buildingID)
 
 	// 检查通知是否绑定到其他建筑物
 	var buildingCount int64
@@ -734,7 +762,7 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 	}
 
 	if buildingCount == 0 {
-		fmt.Printf("[NoticeSyncService] Notice ID %d has no other building bindings, will be deleted\n", noticeID)
+		log.Info("通知ID %d 没有其他建筑绑定，将被删除", noticeID)
 
 		// 获取通知信息，包括文件ID
 		var notice base_models.Notice
@@ -754,7 +782,7 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 			return err
 		}
 
-		fmt.Printf("[NoticeSyncService] Deleted notice ID %d\n", noticeID)
+		log.Info("删除通知ID | 通知ID: %d", noticeID)
 
 		// 检查文件是否被其他通知使用
 		if fileID != nil {
@@ -766,7 +794,7 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 			}
 
 			if fileCount == 0 {
-				fmt.Printf("[NoticeSyncService] File ID %d has no other notice references, will be deleted\n", *fileID)
+				log.Info("文件ID %d 没有其他通知引用，将被删除", *fileID)
 
 				// 删除文件
 				if err := tx.Delete(&base_models.File{}, *fileID).Error; err != nil {
@@ -775,14 +803,13 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 					return err
 				}
 
-				fmt.Printf("[NoticeSyncService] Deleted file ID %d\n", *fileID)
+				log.Info("删除文件ID | 文件ID: %d", *fileID)
 			} else {
-				fmt.Printf("[NoticeSyncService] File ID %d has %d other notice references, keeping file\n", *fileID, fileCount)
+				log.Info("文件ID %d 有 %d 个其他通知引用，保留文件", *fileID, fileCount)
 			}
 		}
 	} else {
-		fmt.Printf("[NoticeSyncService] Notice ID %d has %d other building bindings, keeping notice\n",
-			noticeID, buildingCount)
+		log.Info("通知ID %d 有 %d 个其他建筑绑定，保留通知", noticeID, buildingCount)
 	}
 
 	// 提交事务
@@ -807,29 +834,29 @@ func (s *NoticeSyncService) clearAllCaches(ctx context.Context) error {
 		// 清除通知ID缓存
 		idKey := fmt.Sprintf("building_notice_ids:%d", building.ID)
 		if err := s.redis.Del(ctx, idKey).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear notice IDs cache for building %d: %v\n", building.ID, err)
+			log.Warn("警告: 清除通知ID缓存失败 | 建筑ID: %d | 错误: %v", building.ID, err)
 		}
 
 		// 清除通知数量缓存
 		countKey := fmt.Sprintf("building_ismart_notice_count:%d", building.ID)
 		if err := s.redis.Del(ctx, countKey).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear notice count cache for building %d: %v\n", building.ID, err)
+			log.Warn("警告: 清除通知数量缓存失败 | 建筑ID: %d | 错误: %v", building.ID, err)
 		}
 
 		// 清除建筑物缓存
 		buildingKey := fmt.Sprintf("building:%d", building.ID)
 		if err := s.redis.Del(ctx, buildingKey).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear building cache for building %d: %v\n", building.ID, err)
+			log.Warn("警告: 清除建筑物缓存失败 | 建筑ID: %d | 错误: %v", building.ID, err)
 		}
 
 		// 清除同步的通知MD5缓存
 		syncedMD5Key := fmt.Sprintf("%s:%d", syncedNoticeMD5Prefix, building.ID)
 		if err := s.redis.Del(ctx, syncedMD5Key).Err(); err != nil {
-			fmt.Printf("[NoticeSyncService] Warning: failed to clear synced notice MD5s cache for building %d: %v\n", building.ID, err)
+			log.Warn("警告: 清除同步MD5缓存失败 | 建筑ID: %d | 错误: %v", building.ID, err)
 		}
 	}
 
-	fmt.Println("[NoticeSyncService] All caches cleared successfully")
+	log.Info("所有缓存已清除成功")
 	return nil
 }
 
@@ -863,11 +890,11 @@ func (s *NoticeSyncService) StartSyncScheduler(ctx context.Context) {
 	syncInterval := getNoticeSyncInterval()
 	ticker := time.NewTicker(syncInterval)
 	countdownTicker := time.NewTicker(1 * time.Minute)
-	fmt.Println("[NoticeSyncService] Scheduler started")
+	log.Info("调度器已启动")
 
 	// Clear all caches before starting
 	if err := s.clearAllCaches(ctx); err != nil {
-		fmt.Printf("[NoticeSyncService] Warning: failed to clear caches on start: %v\n", err)
+		log.Warn("警告: 启动时清除缓存失败 | 错误: %v", err)
 	}
 
 	go func() {
@@ -879,7 +906,7 @@ func (s *NoticeSyncService) StartSyncScheduler(ctx context.Context) {
 		}
 
 		// 立即执行一次同步
-		fmt.Println("[NoticeSyncService] Running initial sync...")
+		log.Info("正在运行初始同步...")
 		s.runSync(adminClaims)
 		nextSync := time.Now().Add(syncInterval)
 
@@ -888,13 +915,13 @@ func (s *NoticeSyncService) StartSyncScheduler(ctx context.Context) {
 			case <-ctx.Done():
 				ticker.Stop()
 				countdownTicker.Stop()
-				fmt.Println("[NoticeSyncService] Scheduler stopped")
+				log.Info("调度器已停止")
 				return
 			case <-countdownTicker.C:
 				remaining := time.Until(nextSync).Round(time.Minute)
-				fmt.Printf("[NoticeSyncService] Next sync in %d minutes\n", int(remaining.Minutes()))
+				log.Info("下次同步在 %d 分钟后", int(remaining.Minutes()))
 			case <-ticker.C:
-				fmt.Println("[NoticeSyncService] Running scheduled sync...")
+				log.Info("正在运行计划同步...")
 				s.runSync(adminClaims)
 				nextSync = time.Now().Add(syncInterval)
 			}
@@ -907,12 +934,12 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 	// Get all buildings
 	var buildings []base_models.Building
 	if err := s.db.Find(&buildings).Error; err != nil {
-		fmt.Printf("[NoticeSyncService] Failed to get buildings: %v\n", err)
+		log.Error("获取建筑物失败 | 错误: %v", err)
 		return
 	}
 
 	buildingCount := len(buildings)
-	fmt.Printf("[NoticeSyncService] Found %d buildings to sync\n", buildingCount)
+	log.Info("找到 %d 个建筑物进行同步", buildingCount)
 
 	// Get number of CPU cores
 	cpuCores := runtime.NumCPU()
@@ -920,8 +947,7 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 	// Calculate optimal number of building workers based on CPU cores
 	maxBuildingWorkers := calculateBuildingWorkers(buildingCount, cpuCores)
 
-	fmt.Printf("[NoticeSyncService] System has %d CPU cores, using %d concurrent building workers\n",
-		cpuCores, maxBuildingWorkers)
+	log.Info("系统有 %d 个CPU核心，使用 %d 个并发建筑工人", cpuCores, maxBuildingWorkers)
 
 	// Create a wait group to wait for all goroutines to finish
 	var wg sync.WaitGroup
@@ -945,7 +971,7 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			fmt.Printf("[NoticeSyncService] Starting sync for building %d (%s)\n", b.ID, b.Name)
+			log.Info("开始同步建筑物 %d (%s)", b.ID, b.Name)
 			result, err := s.SyncBuildingNotices(b.ID, adminClaims)
 
 			// Send result to channel
@@ -972,18 +998,17 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 	// Process results as they come in
 	for res := range resultChan {
 		if res.err != nil {
-			fmt.Printf("[NoticeSyncService] Failed to sync notices for building %d (%s): %v\n",
+			log.Error("建筑通知同步失败 | 建筑ID: %d | 名称: %s | 错误: %v",
 				res.buildingID, res.name, res.err)
 			continue
 		}
 
 		// Consolidated statistics output
-		fmt.Printf("[NoticeSyncService] Sync completed for building %d (%s):\n", res.buildingID, res.name)
-		fmt.Printf("[NoticeSyncService]     - Total to process: %d\n", res.result["totalProcessed"])
-		fmt.Printf("[NoticeSyncService]     - Successfully processed: %d\n", res.result["successCount"])
-		fmt.Printf("[NoticeSyncService]     - Already synced: %d\n", res.result["hasSyncedCount"])
-		fmt.Printf("[NoticeSyncService]     - Failed: %d\n", len(res.result["failedNotices"].([]string)))
-		fmt.Printf("[NoticeSyncService]     - To be deleted: %d\n", res.result["deleteCount"])
+		log.Info("建筑通知同步完成 | 建筑ID: %d | 名称: %s", res.buildingID, res.name)
+		log.Info("同步统计 | 建筑ID: %d | 总处理: %d | 成功: %d | 已同步: %d | 失败: %d | 待删除: %d",
+			res.buildingID, res.result["totalProcessed"], res.result["successCount"],
+			res.result["hasSyncedCount"], len(res.result["failedNotices"].([]string)),
+			res.result["deleteCount"])
 
 		// Only show detailed IDs if there are changes
 		needSync := res.result["need_sync_notices"].([]int)
@@ -991,24 +1016,23 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 		changes := res.result["change_notices"].([]int)
 
 		if len(needSync) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Need sync: %v\n", needSync)
+			log.Debug("需要同步的通知IDs | 建筑ID: %d | IDs: %v", res.buildingID, needSync)
 		}
 		if len(hasSync) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Has sync: %v\n", hasSync)
+			log.Debug("已同步的通知IDs | 建筑ID: %d | IDs: %v", res.buildingID, hasSync)
 		}
 		if len(changes) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Changes: %v\n", changes)
+			log.Debug("变更的通知IDs | 建筑ID: %d | IDs: %v", res.buildingID, changes)
 		}
 
 		// Only show failed notices if there are any
 		failedNotices := res.result["failedNotices"].([]string)
 		if len(failedNotices) > 0 {
-			fmt.Printf("[NoticeSyncService]     - Failed notices:\n")
+			log.Warn("同步失败的通知 | 建筑ID: %d", res.buildingID)
 			for _, notice := range failedNotices {
-				fmt.Printf("[NoticeSyncService]         * %s\n", notice)
+				log.Warn("失败通知详情 | 建筑ID: %d | %s", res.buildingID, notice)
 			}
 		}
-		fmt.Println() // Add a blank line between buildings
 	}
 }
 

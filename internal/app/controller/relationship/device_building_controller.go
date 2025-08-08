@@ -6,6 +6,7 @@ import (
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
 	relationship_service "github.com/The-Healthist/iboard_http_service/internal/domain/services/relationship"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,21 +56,29 @@ func HandleFuncDeviceBuilding(container *container.ServiceContainer, method stri
 // @Router       /admin/device-building/bind [post]
 // @Security     BearerAuth
 func (c *DeviceBuildingController) BindDevice() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
 	var form struct {
 		DeviceIDs  []uint `json:"deviceIds" binding:"required"`
 		BuildingID uint   `json:"buildingId" binding:"required"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		log.Warn("绑定设备表单无效 | %v | 错误: %v", requestID, err)
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+
+	log.Info("尝试绑定设备到建筑 | %v | 建筑ID: %d | 设备数量: %d", requestID, form.BuildingID, len(form.DeviceIDs))
 
 	if err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).BindDevices(form.BuildingID, form.DeviceIDs); err != nil {
+		log.Error("绑定设备失败 | %v | 建筑ID: %d | 错误: %v", requestID, form.BuildingID, err)
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info("绑定设备成功 | %v | 建筑ID: %d | 设备数量: %d", requestID, form.BuildingID, len(form.DeviceIDs))
 	c.Ctx.JSON(200, gin.H{"message": "bind devices success"})
 }
 
@@ -87,20 +96,28 @@ func (c *DeviceBuildingController) BindDevice() {
 // @Router       /admin/device-building/unbind [post]
 // @Security     BearerAuth
 func (c *DeviceBuildingController) UnbindDevice() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
 	var form struct {
 		DeviceID uint `json:"deviceId" binding:"required"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		log.Warn("解绑设备表单无效 | %v | 错误: %v", requestID, err)
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+
+	log.Info("尝试解绑设备 | %v | 设备ID: %d", requestID, form.DeviceID)
 
 	if err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).UnbindDevice(form.DeviceID); err != nil {
+		log.Error("解绑设备失败 | %v | 设备ID: %d | 错误: %v", requestID, form.DeviceID, err)
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info("解绑设备成功 | %v | 设备ID: %d", requestID, form.DeviceID)
 	c.Ctx.JSON(200, gin.H{"message": "unbind device success"})
 }
 
@@ -117,19 +134,27 @@ func (c *DeviceBuildingController) UnbindDevice() {
 // @Router       /admin/device-building/devices [get]
 // @Security     BearerAuth
 func (c *DeviceBuildingController) GetDevicesByBuilding() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
 	buildingIDStr := c.Ctx.Query("buildingId")
 	buildingID, err := strconv.ParseUint(buildingIDStr, 10, 64)
 	if err != nil {
+		log.Warn("获取建筑设备失败，无效的建筑ID | %v | 建筑ID: %s", requestID, buildingIDStr)
 		c.Ctx.JSON(400, gin.H{"error": "Invalid building ID"})
 		return
 	}
 
+	log.Info("获取建筑绑定的设备 | %v | 建筑ID: %d", requestID, buildingID)
+
 	devices, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetDevicesByBuildingWithStatus(uint(buildingID))
 	if err != nil {
+		log.Error("获取建筑设备失败 | %v | 建筑ID: %d | 错误: %v", requestID, buildingID, err)
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info("获取建筑设备成功 | %v | 建筑ID: %d | 设备数量: %d", requestID, buildingID, len(devices))
 	c.Ctx.JSON(200, gin.H{
 		"message": "Get devices success",
 		"data":    devices,
@@ -149,19 +174,27 @@ func (c *DeviceBuildingController) GetDevicesByBuilding() {
 // @Router       /admin/device-building/building [get]
 // @Security     BearerAuth
 func (c *DeviceBuildingController) GetBuildingByDevice() {
+	// 获取请求ID
+	requestID, _ := c.Ctx.Get(log.RequestIDKey)
+
 	deviceIDStr := c.Ctx.Query("deviceId")
 	deviceID, err := strconv.ParseUint(deviceIDStr, 10, 64)
 	if err != nil {
+		log.Warn("获取设备所属建筑失败，无效的设备ID | %v | 设备ID: %s", requestID, deviceIDStr)
 		c.Ctx.JSON(400, gin.H{"error": "invalid device ID"})
 		return
 	}
 
+	log.Info("获取设备所属建筑 | %v | 设备ID: %d", requestID, deviceID)
+
 	building, err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).GetBuildingByDevice(uint(deviceID))
 	if err != nil {
+		log.Error("获取设备所属建筑失败 | %v | 设备ID: %d | 错误: %v", requestID, deviceID, err)
 		c.Ctx.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info("获取设备所属建筑成功 | %v | 设备ID: %d | 建筑ID: %d", requestID, deviceID, building.ID)
 	c.Ctx.JSON(200, gin.H{
 		"data": building,
 	})

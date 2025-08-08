@@ -6,6 +6,7 @@ import (
 	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
 	"gorm.io/gorm"
 )
@@ -147,7 +148,7 @@ func (s *BuildingService) GetByID(id uint) (*base_models.Building, error) {
 	for i := range building.Devices {
 		status := deviceService.CheckDeviceStatus(building.Devices[i].ID)
 		building.Devices[i].Status = status
-		fmt.Printf("Device %d: ID=%d, DeviceID=%s, Status=%s\n",
+		log.Debug("设备状态 | 索引: %d | ID: %d | DeviceID: %s | 状态: %s",
 			i, building.Devices[i].ID, building.Devices[i].DeviceID, status)
 	}
 
