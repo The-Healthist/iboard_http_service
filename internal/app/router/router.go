@@ -30,6 +30,9 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 	r.POST("/api/device/login", http_base_controller.HandleFuncDevice(serviceContainer, "login"))
 	r.POST("/api/building_admin/login", http_building_admin_controller.HandleFuncBuildingAdminAuth(serviceContainer, "login"))
 
+	// App version public routes
+	r.GET("/api/admin/app/version", http_base_controller.HandleFuncApp(serviceContainer, "get"))
+
 	// Upload routes
 	r.POST("/api/admin/upload/params", middlewares.AuthorizeJWTUpload(), http_base_controller.HandleFuncUpload(serviceContainer, "getUploadParams"))
 	r.POST("/api/admin/upload/callback", http_base_controller.HandleFuncUpload(serviceContainer, "uploadCallback"))
@@ -42,6 +45,9 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 	{
 		// File routes
 		adminGroup.POST("/file", http_base_controller.HandleFuncFile(serviceContainer, "create"))
+		// App routes
+		adminGroup.GET("/app", http_base_controller.HandleFuncApp(serviceContainer, "get"))
+		adminGroup.PUT("/app", http_base_controller.HandleFuncApp(serviceContainer, "update"))
 		adminGroup.POST("/files", http_base_controller.HandleFuncFile(serviceContainer, "createMany"))
 		adminGroup.GET("/file", http_base_controller.HandleFuncFile(serviceContainer, "get"))
 		adminGroup.GET("/file/:id", http_base_controller.HandleFuncFile(serviceContainer, "getOne"))
@@ -131,6 +137,15 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		adminGroup.POST("/device_building/unbind", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "unbindDevice"))
 		adminGroup.GET("/device_building/devices", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "getDevicesByBuilding"))
 		adminGroup.GET("/device_building/building", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "getBuildingByDevice"))
+	  
+					// Admin set carousel orders (admin can view and update complete data)
+		adminGroup.GET("/device/carousel/top_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getTopAdCarouselResolved"))
+		adminGroup.PUT("/device/carousel/top_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "updateTopAdCarousel"))
+		adminGroup.GET("/device/carousel/full_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getFullAdCarouselResolved"))
+		adminGroup.PUT("/device/carousel/full_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "updateFullAdCarousel"))
+		adminGroup.GET("/device/carousel/notices", http_base_controller.HandleFuncDevice(serviceContainer, "getNoticeCarouselResolved"))
+		adminGroup.PUT("/device/carousel/notices", http_base_controller.HandleFuncDevice(serviceContainer, "updateNoticeCarousel"))
+
 	}
 
 	// Building admin routes (requires building admin JWT)
@@ -168,7 +183,12 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		deviceClientGroup.GET("/advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getDeviceAdvertisements"))
 		deviceClientGroup.GET("/notices", http_base_controller.HandleFuncDevice(serviceContainer, "getDeviceNotices"))
 		deviceClientGroup.POST("/health_test", http_base_controller.HandleFuncDevice(serviceContainer, "healthTest"))
+		// 轮播列表接口（设备 JWT 可访问，返回完整数据结构按自定义顺序）
+		deviceClientGroup.GET("/carousel/top_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getTopAdCarouselResolved"))
+		deviceClientGroup.GET("/carousel/full_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getFullAdCarouselResolved"))
+		deviceClientGroup.GET("/carousel/notices", http_base_controller.HandleFuncDevice(serviceContainer, "getNoticeCarouselResolved"))
 	}
+
 
 	return r
 }

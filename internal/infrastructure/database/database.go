@@ -56,7 +56,8 @@ func InitDB(host, user, password, port, dbname string) *gorm.DB {
 		&models.Advertisement{},
 		&models.Notice{},
 		&models.File{},
-		&models.Device{},
+		&models.Device{}, // 包含 JSON 列：top/full/notices carousel lists
+		&models.App{},
 	); err != nil {
 		log.Error("数据库表结构迁移失败: %v", err)
 		return nil
@@ -78,6 +79,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.Notice{},
 		&models.File{},
 		&models.Device{},
+		&models.App{},
 	)
 
 	if err != nil {

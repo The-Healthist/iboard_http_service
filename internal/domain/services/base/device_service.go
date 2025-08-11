@@ -2,6 +2,7 @@ package base_services
 
 import (
 	"context"
+    "encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	databases "github.com/The-Healthist/iboard_http_service/internal/infrastructure/database"
 	redis "github.com/The-Healthist/iboard_http_service/internal/infrastructure/redis"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
+    "gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -45,6 +47,24 @@ type InterfaceDeviceService interface {
 	GetWithStatus(query map[string]interface{}, pagination map[string]interface{}) ([]DeviceWithStatus, models.PaginationResult, error)
 	GetByIDWithStatus(id uint) (*DeviceWithStatus, error)
 	GetDevicesByBuildingWithStatus(buildingID uint) ([]DeviceWithStatus, error)
+    // 1.UpdateTopAdCarousel 更新顶部广告轮播顺序
+    UpdateTopAdCarousel(deviceID uint, ids []uint) error
+    // 2.GetTopAdCarousel 获取顶部广告轮播顺序
+    GetTopAdCarousel(deviceID uint) ([]uint, error)
+    // 3.UpdateFullAdCarousel 更新全屏广告轮播顺序
+    UpdateFullAdCarousel(deviceID uint, ids []uint) error
+    // 4.GetFullAdCarousel 获取全屏广告轮播顺序
+    GetFullAdCarousel(deviceID uint) ([]uint, error)
+    // 5.UpdateNoticeCarousel 更新公告轮播顺序
+    UpdateNoticeCarousel(deviceID uint, ids []uint) error
+    // 6.GetNoticeCarousel 获取公告轮播顺序
+    GetNoticeCarousel(deviceID uint) ([]uint, error)
+    // 7.GetTopAdCarouselResolved 获取顶部广告详细列表(按自定义顺序)
+    GetTopAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
+    // 8.GetFullAdCarouselResolved 获取全屏广告详细列表(按自定义顺序)
+    GetFullAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
+    // 9.GetNoticeCarouselResolved 获取公告详细列表(按自定义顺序)
+    GetNoticeCarouselResolved(deviceID uint) ([]models.Notice, error)
 }
 
 type DeviceService struct {
@@ -250,10 +270,119 @@ func (s *DeviceService) GetByID(id uint) (*models.Device, error) {
 
 func (s *DeviceService) GetByDeviceID(deviceID string) (*models.Device, error) {
 	var device models.Device
-	if err := s.db.Preload("Building").Where("device_id = ?", deviceID).First(&device).Error; err != nil {
+    if err := s.db.Preload("Building").Where("device_id = ?", deviceID).First(&device).Error; err != nil {
 		return nil, err
 	}
 	return &device, nil
+}
+
+// toJSONFromUintSlice 将 uint 列表转换为 JSON
+func toJSONFromUintSlice(ids []uint) datatypes.JSON {
+    if ids == nil {
+        return datatypes.JSON("[]")
+    }
+    b, _ := json.Marshal(ids)
+    return datatypes.JSON(b)
+}
+
+// toUintSliceFromJSON 将 JSON 转回 uint 列表
+func toUintSliceFromJSON(j datatypes.JSON) ([]uint, error) {
+    if len(j) == 0 {
+        return []uint{}, nil
+    }
+    var ids []uint
+    if err := json.Unmarshal(j, &ids); err != nil {
+        return nil, err
+    }
+    return ids, nil
+}
+
+// 1.UpdateTopAdCarousel 更新顶部广告轮播顺序
+func (s *DeviceService) UpdateTopAdCarousel(deviceID uint, ids []uint) error {
+    return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
+        Update("top_advertisement_carousel_list", toJSONFromUintSlice(ids)).Error
+}
+
+// 2.GetTopAdCarousel 获取顶部广告轮播顺序
+func (s *DeviceService) GetTopAdCarousel(deviceID uint) ([]uint, error) {
+    var device models.Device
+    if err := s.db.Select("top_advertisement_carousel_list").First(&device, deviceID).Error; err != nil {
+        return nil, err
+    }
+    return toUintSliceFromJSON(device.TopAdvertisementCarouselList)
+}
+
+// 3.UpdateFullAdCarousel 更新全屏广告轮播顺序
+func (s *DeviceService) UpdateFullAdCarousel(deviceID uint, ids []uint) error {
+    return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
+        Update("full_advertisement_carousel_list", toJSONFromUintSlice(ids)).Error
+}
+
+// 4.GetFullAdCarousel 获取全屏广告轮播顺序
+func (s *DeviceService) GetFullAdCarousel(deviceID uint) ([]uint, error) {
+    var device models.Device
+    if err := s.db.Select("full_advertisement_carousel_list").First(&device, deviceID).Error; err != nil {
+        return nil, err
+    }
+    return toUintSliceFromJSON(device.FullAdvertisementCarouselList)
+}
+
+// 5.UpdateNoticeCarousel 更新公告轮播顺序
+func (s *DeviceService) UpdateNoticeCarousel(deviceID uint, ids []uint) error {
+    return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
+        Update("notice_carousel_list", toJSONFromUintSlice(ids)).Error
+}
+
+// 6.GetNoticeCarousel 获取公告轮播顺序
+func (s *DeviceService) GetNoticeCarousel(deviceID uint) ([]uint, error) {
+    var device models.Device
+    if err := s.db.Select("notice_carousel_list").First(&device, deviceID).Error; err != nil {
+        return nil, err
+    }
+    return toUintSliceFromJSON(device.NoticeCarouselList)
+}
+
+// 7.GetTopAdCarouselResolved 获取顶部广告详细列表(按自定义顺序)
+func (s *DeviceService) GetTopAdCarouselResolved(deviceID uint) ([]models.Advertisement, error) {
+    ids, err := s.GetTopAdCarousel(deviceID)
+    if err != nil { return nil, err }
+    if len(ids) == 0 { return []models.Advertisement{}, nil }
+    var ads []models.Advertisement
+    if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil { return nil, err }
+    // 按 ids 顺序重排
+    byID := make(map[uint]models.Advertisement, len(ads))
+    for _, a := range ads { byID[a.ID] = a }
+    ordered := make([]models.Advertisement, 0, len(ids))
+    for _, id := range ids { if a, ok := byID[id]; ok { ordered = append(ordered, a) } }
+    return ordered, nil
+}
+
+// 8.GetFullAdCarouselResolved 获取全屏广告详细列表(按自定义顺序)
+func (s *DeviceService) GetFullAdCarouselResolved(deviceID uint) ([]models.Advertisement, error) {
+    ids, err := s.GetFullAdCarousel(deviceID)
+    if err != nil { return nil, err }
+    if len(ids) == 0 { return []models.Advertisement{}, nil }
+    var ads []models.Advertisement
+    if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil { return nil, err }
+    byID := make(map[uint]models.Advertisement, len(ads))
+    for _, a := range ads { byID[a.ID] = a }
+    ordered := make([]models.Advertisement, 0, len(ids))
+    for _, id := range ids { if a, ok := byID[id]; ok { ordered = append(ordered, a) } }
+    return ordered, nil
+}
+
+// 9.GetNoticeCarouselResolved 获取公告详细列表(按自定义顺序)
+func (s *DeviceService) GetNoticeCarouselResolved(deviceID uint) ([]models.Notice, error) {
+    ids, err := s.GetNoticeCarousel(deviceID)
+    if err != nil { return nil, err }
+    if len(ids) == 0 { return []models.Notice{}, nil }
+    var notices []models.Notice
+    if err := s.db.Where("id IN ?", ids).Preload("File").Find(&notices).Error; err != nil { return nil, err }
+    byID := make(map[uint]models.Notice, len(notices))
+    for _, n := range notices { byID[n.ID] = n }
+    ordered := make([]models.Notice, 0, len(ids))
+    for _, id := range ids { if n, ok := byID[id]; ok { ordered = append(ordered, n) } }
+    return ordered, nil
 }
 
 func (s *DeviceService) CreateMany(devices []*models.Device) error {

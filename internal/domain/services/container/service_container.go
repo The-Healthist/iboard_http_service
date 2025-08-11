@@ -30,6 +30,7 @@ type ServiceContainer struct {
 	uploadService        base_services.IUploadService
 	deviceService        base_services.InterfaceDeviceService
 	noticeSyncService    base_services.InterfaceNoticeSyncService
+    appService           base_services.InterfaceAppService
 
 	// Building Admin Services
 	buildingAdminAdvertisementService building_admin_services.InterfaceBuildingAdminAdvertisementService
@@ -128,6 +129,8 @@ func (c *ServiceContainer) initializeServices() {
 		c.uploadService,
 		c.fileService,
 	)
+    // App service
+    c.appService = base_services.NewAppService(c.db)
 
 	// Initialize Relationship Services
 	log.Debug("初始化关系服务...")
@@ -188,6 +191,8 @@ func (c *ServiceContainer) GetService(name string) interface{} {
 		service = c.deviceService
 	case "noticeSync":
 		service = c.noticeSyncService
+    case "app":
+        service = c.appService
 
 	// Building admin services
 	case "buildingAdminAdvertisement":

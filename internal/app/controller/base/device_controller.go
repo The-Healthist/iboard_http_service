@@ -90,6 +90,24 @@ func HandleFuncDevice(container *container.ServiceContainer, method string) gin.
 			controller := NewDeviceController(ctx, container)
 			controller.HealthTest()
 		}
+    case "getTopAdCarousel":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarousel() }
+    case "updateTopAdCarousel":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateTopAdCarousel() }
+    case "getFullAdCarousel":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetFullAdCarousel() }
+    case "updateFullAdCarousel":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateFullAdCarousel() }
+    case "getNoticeCarousel":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetNoticeCarousel() }
+    case "updateNoticeCarousel":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateNoticeCarousel() }
+    case "getTopAdCarouselResolved":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarouselResolved() }
+    case "getFullAdCarouselResolved":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetFullAdCarouselResolved() }
+    case "getNoticeCarouselResolved":
+        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetNoticeCarouselResolved() }
 	default:
 		return func(ctx *gin.Context) {
 			ctx.JSON(400, gin.H{"error": "invalid method"})
@@ -598,4 +616,115 @@ func (c *DeviceController) HealthTest() {
 	c.Ctx.JSON(200, gin.H{
 		"message": "Health check successful",
 	})
+}
+
+// 8.GetTopAdCarousel 获取顶部广告轮播顺序
+func (c *DeviceController) GetTopAdCarousel() {
+    var form struct{ ID uint `form:"id" binding:"required"` }
+    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarousel(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": ids})
+}
+
+// 9.UpdateTopAdCarousel 更新顶部广告轮播顺序（全量替换）
+func (c *DeviceController) UpdateTopAdCarousel() {
+    var form struct{ ID uint `json:"id" binding:"required"`; Data []models.Advertisement `json:"data" binding:"required"` }
+    if err := c.Ctx.ShouldBindJSON(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    
+    // 提取 ID 列表
+    var ids []uint
+    for _, ad := range form.Data {
+        ids = append(ids, ad.ID)
+    }
+    
+    if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateTopAdCarousel(form.ID, ids); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    
+    // 返回更新后的完整列表
+    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarouselResolved(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+}
+
+// 10.GetFullAdCarousel 获取全屏广告轮播顺序
+func (c *DeviceController) GetFullAdCarousel() {
+    var form struct{ ID uint `form:"id" binding:"required"` }
+    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarousel(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": ids})
+}
+
+// 11.UpdateFullAdCarousel 更新全屏广告轮播顺序（全量替换）
+func (c *DeviceController) UpdateFullAdCarousel() {
+    var form struct{ ID uint `json:"id" binding:"required"`; Data []models.Advertisement `json:"data" binding:"required"` }
+    if err := c.Ctx.ShouldBindJSON(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    
+    // 提取 ID 列表
+    var ids []uint
+    for _, ad := range form.Data {
+        ids = append(ids, ad.ID)
+    }
+    
+    if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateFullAdCarousel(form.ID, ids); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    
+    // 返回更新后的完整列表
+    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarouselResolved(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+}
+
+// 12.GetNoticeCarousel 获取公告轮播顺序
+func (c *DeviceController) GetNoticeCarousel() {
+    var form struct{ ID uint `form:"id" binding:"required"` }
+    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarousel(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": ids})
+}
+
+// 13.UpdateNoticeCarousel 更新公告轮播顺序（全量替换）
+func (c *DeviceController) UpdateNoticeCarousel() {
+    var form struct{ ID uint `json:"id" binding:"required"`; Data []models.Notice `json:"data" binding:"required"` }
+    if err := c.Ctx.ShouldBindJSON(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    
+    // 提取 ID 列表
+    var ids []uint
+    for _, notice := range form.Data {
+        ids = append(ids, notice.ID)
+    }
+    
+    if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateNoticeCarousel(form.ID, ids); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    
+    // 返回更新后的完整列表
+    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarouselResolved(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get notices success"})
+}
+
+// 14.GetTopAdCarouselResolved 获取顶部广告详细列表
+func (c *DeviceController) GetTopAdCarouselResolved() {
+    var form struct{ ID uint `form:"id" binding:"required"` }
+    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarouselResolved(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+}
+
+// 15.GetFullAdCarouselResolved 获取全屏广告详细列表
+func (c *DeviceController) GetFullAdCarouselResolved() {
+    var form struct{ ID uint `form:"id" binding:"required"` }
+    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarouselResolved(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+}
+
+// 16.GetNoticeCarouselResolved 获取公告详细列表
+func (c *DeviceController) GetNoticeCarouselResolved() {
+    var form struct{ ID uint `form:"id" binding:"required"` }
+    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarouselResolved(form.ID)
+    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
+    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get notices success"})
 }
