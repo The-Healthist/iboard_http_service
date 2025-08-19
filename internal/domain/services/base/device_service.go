@@ -2,7 +2,7 @@ package base_services
 
 import (
 	"context"
-    "encoding/json"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,8 +12,9 @@ import (
 	"github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	databases "github.com/The-Healthist/iboard_http_service/internal/infrastructure/database"
 	redis "github.com/The-Healthist/iboard_http_service/internal/infrastructure/redis"
+	"github.com/The-Healthist/iboard_http_service/pkg/log"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
-    "gorm.io/datatypes"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -42,29 +43,33 @@ type InterfaceDeviceService interface {
 	GetByDeviceID(deviceID string) (*models.Device, error)
 	GetDeviceAdvertisements(deviceId string) ([]models.Advertisement, error)
 	GetDeviceNotices(deviceId string) ([]models.Notice, error)
+	// Get device top advertisements (includes top and topfull display)
+	GetDeviceTopAdvertisements(deviceId string) ([]models.Advertisement, error)
+	// Get device full advertisements (includes full and topfull display)
+	GetDeviceFullAdvertisements(deviceId string) ([]models.Advertisement, error)
 	UpdateDeviceHealth(deviceID uint) error
 	CheckDeviceStatus(deviceID uint) string
 	GetWithStatus(query map[string]interface{}, pagination map[string]interface{}) ([]DeviceWithStatus, models.PaginationResult, error)
 	GetByIDWithStatus(id uint) (*DeviceWithStatus, error)
 	GetDevicesByBuildingWithStatus(buildingID uint) ([]DeviceWithStatus, error)
-    // 1.UpdateTopAdCarousel 更新顶部广告轮播顺序
-    UpdateTopAdCarousel(deviceID uint, ids []uint) error
-    // 2.GetTopAdCarousel 获取顶部广告轮播顺序
-    GetTopAdCarousel(deviceID uint) ([]uint, error)
-    // 3.UpdateFullAdCarousel 更新全屏广告轮播顺序
-    UpdateFullAdCarousel(deviceID uint, ids []uint) error
-    // 4.GetFullAdCarousel 获取全屏广告轮播顺序
-    GetFullAdCarousel(deviceID uint) ([]uint, error)
-    // 5.UpdateNoticeCarousel 更新公告轮播顺序
-    UpdateNoticeCarousel(deviceID uint, ids []uint) error
-    // 6.GetNoticeCarousel 获取公告轮播顺序
-    GetNoticeCarousel(deviceID uint) ([]uint, error)
-    // 7.GetTopAdCarouselResolved 获取顶部广告详细列表(按自定义顺序)
-    GetTopAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
-    // 8.GetFullAdCarouselResolved 获取全屏广告详细列表(按自定义顺序)
-    GetFullAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
-    // 9.GetNoticeCarouselResolved 获取公告详细列表(按自定义顺序)
-    GetNoticeCarouselResolved(deviceID uint) ([]models.Notice, error)
+	// 1.UpdateTopAdCarousel 更新顶部广告轮播顺序
+	UpdateTopAdCarousel(deviceID uint, ids []uint) error
+	// 2.GetTopAdCarousel 获取顶部广告轮播顺序
+	GetTopAdCarousel(deviceID uint) ([]uint, error)
+	// 3.UpdateFullAdCarousel 更新全屏广告轮播顺序
+	UpdateFullAdCarousel(deviceID uint, ids []uint) error
+	// 4.GetFullAdCarousel 获取全屏广告轮播顺序
+	GetFullAdCarousel(deviceID uint) ([]uint, error)
+	// 5.UpdateNoticeCarousel 更新公告轮播顺序
+	UpdateNoticeCarousel(deviceID uint, ids []uint) error
+	// 6.GetNoticeCarousel 获取公告轮播顺序
+	GetNoticeCarousel(deviceID uint) ([]uint, error)
+	// 7.GetTopAdCarouselResolved 获取顶部广告详细列表(按自定义顺序)
+	GetTopAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
+	// 8.GetFullAdCarouselResolved 获取全屏广告详细列表(按自定义顺序)
+	GetFullAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
+	// 9.GetNoticeCarouselResolved 获取公告详细列表(按自定义顺序)
+	GetNoticeCarouselResolved(deviceID uint) ([]models.Notice, error)
 }
 
 type DeviceService struct {
@@ -78,12 +83,166 @@ func NewDeviceService(db *gorm.DB) InterfaceDeviceService {
 }
 
 func (s *DeviceService) Create(device *models.Device) error {
-	// Verify building exists
-	var building models.Building
-	if err := s.db.First(&building, device.BuildingID).Error; err != nil {
-		return errors.New("building not found")
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Verify building exists
+		var building models.Building
+		if err := tx.First(&building, device.BuildingID).Error; err != nil {
+			return errors.New("building not found")
+		}
+
+		// 创建设备
+		if err := tx.Create(device).Error; err != nil {
+			return err
+		}
+
+		// 如果指定了 buildingId，初始化轮播列表
+		if device.BuildingID != 0 {
+			if err := s.initializeDeviceCarouselLists(tx, device, device.BuildingID); err != nil {
+				log.Error("初始化设备轮播列表失败 | 设备ID: %d | 建筑ID: %d | 错误: %v", device.ID, device.BuildingID, err)
+				return fmt.Errorf("failed to initialize device carousel lists: %v", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+func (s *DeviceService) CreateMany(devices []*models.Device) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 按 building 分组，避免重复查询
+		buildingDevices := make(map[uint][]*models.Device)
+		for _, device := range devices {
+			if device.BuildingID != 0 {
+				buildingDevices[device.BuildingID] = append(buildingDevices[device.BuildingID], device)
+			}
+		}
+
+		// 批量创建设备
+		if err := tx.CreateInBatches(devices, 100).Error; err != nil {
+			return err
+		}
+
+		// 为每个 building 下的设备初始化轮播列表
+		for buildingID, buildingDevicesList := range buildingDevices {
+			// 获取该 building 的默认轮播列表
+			topAdIDs, fullAdIDs, noticeIDs, err := s.getBuildingDefaultCarouselLists(tx, buildingID)
+			if err != nil {
+				log.Error("获取建筑默认轮播列表失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+				return fmt.Errorf("failed to get building default carousel lists: %v", err)
+			}
+
+			// 转换为 JSON
+			topAdJSON, _ := json.Marshal(topAdIDs)
+			fullAdJSON, _ := json.Marshal(fullAdIDs)
+			noticeJSON, _ := json.Marshal(noticeIDs)
+
+			// 批量更新该 building 下所有设备的轮播列表
+			var deviceIDs []uint
+			for _, device := range buildingDevicesList {
+				deviceIDs = append(deviceIDs, device.ID)
+			}
+
+			updates := map[string]interface{}{
+				"top_advertisement_carousel_list":  topAdJSON,
+				"full_advertisement_carousel_list": fullAdJSON,
+				"notice_carousel_list":             noticeJSON,
+			}
+
+			if err := tx.Model(&models.Device{}).Where("id IN ?", deviceIDs).Updates(updates).Error; err != nil {
+				log.Error("批量更新设备轮播列表失败 | 建筑ID: %d | 设备数量: %d | 错误: %v", buildingID, len(deviceIDs), err)
+				return fmt.Errorf("failed to update device carousel lists: %v", err)
+			}
+
+			log.Info("成功初始化建筑下设备的轮播列表 | 建筑ID: %d | 设备数量: %d | 顶部广告: %d | 全屏广告: %d | 通知: %d",
+				buildingID, len(deviceIDs), len(topAdIDs), len(fullAdIDs), len(noticeIDs))
+		}
+
+		return nil
+	})
+}
+
+// initializeDeviceCarouselLists 初始化单个设备的轮播列表
+func (s *DeviceService) initializeDeviceCarouselLists(tx *gorm.DB, device *models.Device, buildingID uint) error {
+	log.Info("初始化设备轮播列表 | 设备ID: %d | 建筑ID: %d", device.ID, buildingID)
+
+	// 获取建筑的默认轮播列表
+	topAdIDs, fullAdIDs, noticeIDs, err := s.getBuildingDefaultCarouselLists(tx, buildingID)
+	if err != nil {
+		return err
 	}
-	return s.db.Create(device).Error
+
+	// 转换为 JSON
+	topAdJSON, _ := json.Marshal(topAdIDs)
+	fullAdJSON, _ := json.Marshal(fullAdIDs)
+	noticeJSON, _ := json.Marshal(noticeIDs)
+
+	// 更新设备
+	updates := map[string]interface{}{
+		"top_advertisement_carousel_list":  topAdJSON,
+		"full_advertisement_carousel_list": fullAdJSON,
+		"notice_carousel_list":             noticeJSON,
+	}
+
+	if err := tx.Model(&models.Device{}).Where("id = ?", device.ID).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update device carousel lists: %v", err)
+	}
+
+	log.Info("成功初始化设备轮播列表 | 设备ID: %d | 顶部广告数量: %d | 全屏广告数量: %d | 通知数量: %d",
+		device.ID, len(topAdIDs), len(fullAdIDs), len(noticeIDs))
+
+	return nil
+}
+
+// getBuildingDefaultCarouselLists 获取建筑的默认轮播列表
+func (s *DeviceService) getBuildingDefaultCarouselLists(tx *gorm.DB, buildingID uint) ([]uint, []uint, []uint, error) {
+	// 获取建筑的默认广告列表
+	var topAdvertisements []models.Advertisement
+	if err := tx.
+		Joins("JOIN advertisement_buildings ON advertisements.id = advertisement_buildings.advertisement_id").
+		Where("advertisement_buildings.building_id = ? AND advertisements.status = ? AND advertisements.display IN ?",
+			buildingID, "active", []string{"top", "topfull"}).
+		Order("advertisements.priority DESC, advertisements.created_at ASC").
+		Find(&topAdvertisements).Error; err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to get top advertisements: %v", err)
+	}
+
+	var fullAdvertisements []models.Advertisement
+	if err := tx.
+		Joins("JOIN advertisement_buildings ON advertisements.id = advertisement_buildings.advertisement_id").
+		Where("advertisement_buildings.building_id = ? AND advertisements.status = ? AND advertisements.display IN ?",
+			buildingID, "active", []string{"full", "topfull"}).
+		Order("advertisements.priority DESC, advertisements.created_at ASC").
+		Find(&fullAdvertisements).Error; err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to get full advertisements: %v", err)
+	}
+
+	// 获取建筑的默认通知列表
+	var notices []models.Notice
+	if err := tx.
+		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notice_buildings.building_id = ? AND notices.status = ?", buildingID, "active").
+		Order("notices.priority DESC, notices.created_at ASC").
+		Find(&notices).Error; err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to get notices: %v", err)
+	}
+
+	// 提取 ID 列表
+	var topAdIDs []uint
+	for _, ad := range topAdvertisements {
+		topAdIDs = append(topAdIDs, ad.ID)
+	}
+
+	var fullAdIDs []uint
+	for _, ad := range fullAdvertisements {
+		fullAdIDs = append(fullAdIDs, ad.ID)
+	}
+
+	var noticeIDs []uint
+	for _, notice := range notices {
+		noticeIDs = append(noticeIDs, notice.ID)
+	}
+
+	return topAdIDs, fullAdIDs, noticeIDs, nil
 }
 
 func (s *DeviceService) Get(query map[string]interface{}, paginate map[string]interface{}) ([]models.Device, models.PaginationResult, error) {
@@ -146,32 +305,77 @@ func (s *DeviceService) Update(id uint, updates map[string]interface{}) (*models
 		}
 
 		// 如果要更新 buildingId
-		if newBuildingID, ok := updates["buildingId"].(float64); ok {
-			// 如果新的 buildingId 不为 0，先验证建筑是否存在
-			if newBuildingID != 0 {
-				var building models.Building
-				if err := tx.First(&building, uint(newBuildingID)).Error; err != nil {
-					return fmt.Errorf("new building not found: %v", err)
-				}
+		if newBuildingID, ok := updates["buildingId"]; ok {
+			// 支持多种数字类型转换
+			var newBuildingIDUint uint
+			var validBuildingID bool
 
-				// 检查设备是否已经绑定到其他建筑物
-				if device.BuildingID != 0 && device.BuildingID != uint(newBuildingID) {
-					// 先解绑
-					if err := tx.Model(&device).Update("building_id", nil).Error; err != nil {
-						return fmt.Errorf("failed to unbind old building: %v", err)
-					}
-				}
+			switch v := newBuildingID.(type) {
+			case float64:
+				newBuildingIDUint = uint(v)
+				validBuildingID = true
+			case int:
+				newBuildingIDUint = uint(v)
+				validBuildingID = true
+			case int64:
+				newBuildingIDUint = uint(v)
+				validBuildingID = true
+			case uint:
+				newBuildingIDUint = v
+				validBuildingID = true
+			default:
+				log.Warn("不支持的 buildingId 类型 | 设备ID: %d | 类型: %T | 值: %v", device.ID, newBuildingID, newBuildingID)
+				// 跳过不支持的 buildingId 类型
+				delete(updates, "buildingId")
+				validBuildingID = false
+			}
 
-				// 绑定到新建筑物
-				if err := tx.Model(&device).Update("building_id", uint(newBuildingID)).Error; err != nil {
-					return fmt.Errorf("failed to bind to new building: %v", err)
-				}
-			} else {
-				// 如果新的 buildingId 为 0，则只进行解绑
-				if device.BuildingID != 0 {
-					if err := tx.Model(&device).Update("building_id", nil).Error; err != nil {
-						return fmt.Errorf("failed to unbind building: %v", err)
+			if validBuildingID {
+				oldBuildingID := device.BuildingID
+
+				log.Info("检查设备建筑变更 | 设备ID: %d | 当前建筑ID: %d | 请求建筑ID: %d",
+					device.ID, oldBuildingID, newBuildingIDUint)
+
+				// 只有当 buildingId 真正发生改变时才进行处理
+				if oldBuildingID != newBuildingIDUint {
+					log.Info("检测到设备建筑变更 | 设备ID: %d | 从建筑ID: %d 变更为建筑ID: %d",
+						device.ID, oldBuildingID, newBuildingIDUint)
+
+					if newBuildingIDUint != 0 {
+						// 验证新建筑是否存在
+						var building models.Building
+						if err := tx.First(&building, newBuildingIDUint).Error; err != nil {
+							return fmt.Errorf("new building not found: %v", err)
+						}
+
+						log.Info("开始更新设备建筑 | 设备ID: %d | 新建筑ID: %d | 建筑名称: %s",
+							device.ID, newBuildingIDUint, building.Name)
+
+						// 直接更新到新建筑，无需先解绑
+						if err := tx.Model(&device).Update("building_id", newBuildingIDUint).Error; err != nil {
+							return fmt.Errorf("failed to bind to new building: %v", err)
+						}
+
+						log.Info("开始重置设备轮播列表 | 设备ID: %d | 新建筑ID: %d", device.ID, newBuildingIDUint)
+
+						// 重置设备的轮播列表为新建筑的默认列表
+						if err := s.resetDeviceCarouselLists(tx, &device, newBuildingIDUint); err != nil {
+							log.Error("重置设备轮播列表失败 | 设备ID: %d | 新建筑ID: %d | 错误: %v", device.ID, newBuildingIDUint, err)
+							return fmt.Errorf("failed to reset device carousel lists: %v", err)
+						}
+
+						log.Info("成功更新设备建筑并重置轮播列表 | 设备ID: %d | 新建筑ID: %d", device.ID, newBuildingIDUint)
+					} else {
+						// 如果新的 buildingId 为 0，则解绑建筑
+						if device.BuildingID != 0 {
+							if err := tx.Model(&device).Update("building_id", nil).Error; err != nil {
+								return fmt.Errorf("failed to unbind building: %v", err)
+							}
+							log.Info("成功解绑设备建筑 | 设备ID: %d | 原建筑ID: %d", device.ID, oldBuildingID)
+						}
 					}
+				} else {
+					log.Info("设备建筑ID未发生变更 | 设备ID: %d | 建筑ID: %d", device.ID, oldBuildingID)
 				}
 			}
 
@@ -193,10 +397,15 @@ func (s *DeviceService) Update(id uint, updates map[string]interface{}) (*models
 			"arrearage_update_duration",
 			"notice_update_duration",
 			"advertisement_update_duration",
+			"app_update_duration",
 			"advertisement_play_duration",
 			"notice_play_duration",
 			"spare_duration",
 			"notice_stay_duration",
+			"bottom_carousel_duration",
+			"payment_table_one_page_duration",
+			"normal_to_announcement_carousel_duration",
+			"announcement_carousel_to_full_ads_carousel_duration",
 		}
 
 		for _, field := range settingsFields {
@@ -229,6 +438,37 @@ func (s *DeviceService) Update(id uint, updates map[string]interface{}) (*models
 	return updatedDevice, nil
 }
 
+// resetDeviceCarouselLists 重置设备的轮播列表为指定建筑的默认列表
+func (s *DeviceService) resetDeviceCarouselLists(tx *gorm.DB, device *models.Device, buildingID uint) error {
+	log.Info("重置设备轮播列表 | 设备ID: %d | 建筑ID: %d", device.ID, buildingID)
+
+	// 获取建筑的默认轮播列表
+	topAdIDs, fullAdIDs, noticeIDs, err := s.getBuildingDefaultCarouselLists(tx, buildingID)
+	if err != nil {
+		return err
+	}
+
+	// 转换为 JSON 并更新设备
+	topAdJSON, _ := json.Marshal(topAdIDs)
+	fullAdJSON, _ := json.Marshal(fullAdIDs)
+	noticeJSON, _ := json.Marshal(noticeIDs)
+
+	updates := map[string]interface{}{
+		"top_advertisement_carousel_list":  topAdJSON,
+		"full_advertisement_carousel_list": fullAdJSON,
+		"notice_carousel_list":             noticeJSON,
+	}
+
+	if err := tx.Model(&models.Device{}).Where("id = ?", device.ID).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update device carousel lists: %v", err)
+	}
+
+	log.Info("成功重置设备轮播列表 | 设备ID: %d | 顶部广告数量: %d | 全屏广告数量: %d | 通知数量: %d",
+		device.ID, len(topAdIDs), len(fullAdIDs), len(noticeIDs))
+
+	return nil
+}
+
 func (s *DeviceService) Delete(ids []uint) error {
 	result := s.db.Delete(&models.Device{}, ids)
 	if result.Error != nil {
@@ -250,10 +490,15 @@ func (s *DeviceService) GetByID(id uint) (*models.Device, error) {
 			d.arrearage_update_duration,
 			d.notice_update_duration,
 			d.advertisement_update_duration,
+			d.app_update_duration,
 			d.advertisement_play_duration,
 			d.notice_play_duration,
 			d.spare_duration,
-			d.notice_stay_duration
+			d.notice_stay_duration,
+			d.bottom_carousel_duration,
+			d.payment_table_one_page_duration,
+			d.normal_to_announcement_carousel_duration,
+			d.announcement_carousel_to_full_ads_carousel_duration
 		FROM devices d
 		WHERE d.id = ?
 	`, id).Scan(&device).Error; err != nil {
@@ -270,7 +515,7 @@ func (s *DeviceService) GetByID(id uint) (*models.Device, error) {
 
 func (s *DeviceService) GetByDeviceID(deviceID string) (*models.Device, error) {
 	var device models.Device
-    if err := s.db.Preload("Building").Where("device_id = ?", deviceID).First(&device).Error; err != nil {
+	if err := s.db.Preload("Building").Where("device_id = ?", deviceID).First(&device).Error; err != nil {
 		return nil, err
 	}
 	return &device, nil
@@ -278,163 +523,147 @@ func (s *DeviceService) GetByDeviceID(deviceID string) (*models.Device, error) {
 
 // toJSONFromUintSlice 将 uint 列表转换为 JSON
 func toJSONFromUintSlice(ids []uint) datatypes.JSON {
-    if ids == nil {
-        return datatypes.JSON("[]")
-    }
-    b, _ := json.Marshal(ids)
-    return datatypes.JSON(b)
+	if ids == nil {
+		return datatypes.JSON("[]")
+	}
+	b, _ := json.Marshal(ids)
+	return datatypes.JSON(b)
 }
 
 // toUintSliceFromJSON 将 JSON 转回 uint 列表
 func toUintSliceFromJSON(j datatypes.JSON) ([]uint, error) {
-    if len(j) == 0 {
-        return []uint{}, nil
-    }
-    var ids []uint
-    if err := json.Unmarshal(j, &ids); err != nil {
-        return nil, err
-    }
-    return ids, nil
+	if len(j) == 0 {
+		return []uint{}, nil
+	}
+	var ids []uint
+	if err := json.Unmarshal(j, &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // 1.UpdateTopAdCarousel 更新顶部广告轮播顺序
 func (s *DeviceService) UpdateTopAdCarousel(deviceID uint, ids []uint) error {
-    return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
-        Update("top_advertisement_carousel_list", toJSONFromUintSlice(ids)).Error
+	return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
+		Update("top_advertisement_carousel_list", toJSONFromUintSlice(ids)).Error
 }
 
 // 2.GetTopAdCarousel 获取顶部广告轮播顺序
 func (s *DeviceService) GetTopAdCarousel(deviceID uint) ([]uint, error) {
-    var device models.Device
-    if err := s.db.Select("top_advertisement_carousel_list").First(&device, deviceID).Error; err != nil {
-        return nil, err
-    }
-    return toUintSliceFromJSON(device.TopAdvertisementCarouselList)
+	var device models.Device
+	if err := s.db.Select("top_advertisement_carousel_list").First(&device, deviceID).Error; err != nil {
+		return nil, err
+	}
+	return toUintSliceFromJSON(device.TopAdvertisementCarouselList)
 }
 
 // 3.UpdateFullAdCarousel 更新全屏广告轮播顺序
 func (s *DeviceService) UpdateFullAdCarousel(deviceID uint, ids []uint) error {
-    return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
-        Update("full_advertisement_carousel_list", toJSONFromUintSlice(ids)).Error
+	return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
+		Update("full_advertisement_carousel_list", toJSONFromUintSlice(ids)).Error
 }
 
 // 4.GetFullAdCarousel 获取全屏广告轮播顺序
 func (s *DeviceService) GetFullAdCarousel(deviceID uint) ([]uint, error) {
-    var device models.Device
-    if err := s.db.Select("full_advertisement_carousel_list").First(&device, deviceID).Error; err != nil {
-        return nil, err
-    }
-    return toUintSliceFromJSON(device.FullAdvertisementCarouselList)
+	var device models.Device
+	if err := s.db.Select("full_advertisement_carousel_list").First(&device, deviceID).Error; err != nil {
+		return nil, err
+	}
+	return toUintSliceFromJSON(device.FullAdvertisementCarouselList)
 }
 
 // 5.UpdateNoticeCarousel 更新公告轮播顺序
 func (s *DeviceService) UpdateNoticeCarousel(deviceID uint, ids []uint) error {
-    return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
-        Update("notice_carousel_list", toJSONFromUintSlice(ids)).Error
+	return s.db.Model(&models.Device{}).Where("id = ?", deviceID).
+		Update("notice_carousel_list", toJSONFromUintSlice(ids)).Error
 }
 
 // 6.GetNoticeCarousel 获取公告轮播顺序
 func (s *DeviceService) GetNoticeCarousel(deviceID uint) ([]uint, error) {
-    var device models.Device
-    if err := s.db.Select("notice_carousel_list").First(&device, deviceID).Error; err != nil {
-        return nil, err
-    }
-    return toUintSliceFromJSON(device.NoticeCarouselList)
+	var device models.Device
+	if err := s.db.Select("notice_carousel_list").First(&device, deviceID).Error; err != nil {
+		return nil, err
+	}
+	return toUintSliceFromJSON(device.NoticeCarouselList)
 }
 
 // 7.GetTopAdCarouselResolved 获取顶部广告详细列表(按自定义顺序)
 func (s *DeviceService) GetTopAdCarouselResolved(deviceID uint) ([]models.Advertisement, error) {
-    ids, err := s.GetTopAdCarousel(deviceID)
-    if err != nil { return nil, err }
-    if len(ids) == 0 { return []models.Advertisement{}, nil }
-    var ads []models.Advertisement
-    if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil { return nil, err }
-    // 按 ids 顺序重排
-    byID := make(map[uint]models.Advertisement, len(ads))
-    for _, a := range ads { byID[a.ID] = a }
-    ordered := make([]models.Advertisement, 0, len(ids))
-    for _, id := range ids { if a, ok := byID[id]; ok { ordered = append(ordered, a) } }
-    return ordered, nil
+	ids, err := s.GetTopAdCarousel(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []models.Advertisement{}, nil
+	}
+	var ads []models.Advertisement
+	if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil {
+		return nil, err
+	}
+	// 按 ids 顺序重排
+	byID := make(map[uint]models.Advertisement, len(ads))
+	for _, a := range ads {
+		byID[a.ID] = a
+	}
+	ordered := make([]models.Advertisement, 0, len(ids))
+	for _, id := range ids {
+		if a, ok := byID[id]; ok {
+			ordered = append(ordered, a)
+		}
+	}
+	return ordered, nil
 }
 
 // 8.GetFullAdCarouselResolved 获取全屏广告详细列表(按自定义顺序)
 func (s *DeviceService) GetFullAdCarouselResolved(deviceID uint) ([]models.Advertisement, error) {
-    ids, err := s.GetFullAdCarousel(deviceID)
-    if err != nil { return nil, err }
-    if len(ids) == 0 { return []models.Advertisement{}, nil }
-    var ads []models.Advertisement
-    if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil { return nil, err }
-    byID := make(map[uint]models.Advertisement, len(ads))
-    for _, a := range ads { byID[a.ID] = a }
-    ordered := make([]models.Advertisement, 0, len(ids))
-    for _, id := range ids { if a, ok := byID[id]; ok { ordered = append(ordered, a) } }
-    return ordered, nil
+	ids, err := s.GetFullAdCarousel(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []models.Advertisement{}, nil
+	}
+	var ads []models.Advertisement
+	if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[uint]models.Advertisement, len(ads))
+	for _, a := range ads {
+		byID[a.ID] = a
+	}
+	ordered := make([]models.Advertisement, 0, len(ids))
+	for _, id := range ids {
+		if a, ok := byID[id]; ok {
+			ordered = append(ordered, a)
+		}
+	}
+	return ordered, nil
 }
 
 // 9.GetNoticeCarouselResolved 获取公告详细列表(按自定义顺序)
 func (s *DeviceService) GetNoticeCarouselResolved(deviceID uint) ([]models.Notice, error) {
-    ids, err := s.GetNoticeCarousel(deviceID)
-    if err != nil { return nil, err }
-    if len(ids) == 0 { return []models.Notice{}, nil }
-    var notices []models.Notice
-    if err := s.db.Where("id IN ?", ids).Preload("File").Find(&notices).Error; err != nil { return nil, err }
-    byID := make(map[uint]models.Notice, len(notices))
-    for _, n := range notices { byID[n.ID] = n }
-    ordered := make([]models.Notice, 0, len(ids))
-    for _, id := range ids { if n, ok := byID[id]; ok { ordered = append(ordered, n) } }
-    return ordered, nil
-}
-
-func (s *DeviceService) CreateMany(devices []*models.Device) error {
-	// Start a transaction
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Verify all buildings exist first
-		buildingIDs := make(map[uint]bool)
-		buildingIDList := make([]uint, 0)
-		for _, device := range devices {
-			if !buildingIDs[device.BuildingID] {
-				buildingIDs[device.BuildingID] = true
-				buildingIDList = append(buildingIDList, device.BuildingID)
-			}
+	ids, err := s.GetNoticeCarousel(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []models.Notice{}, nil
+	}
+	var notices []models.Notice
+	if err := s.db.Where("id IN ?", ids).Preload("File").Find(&notices).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[uint]models.Notice, len(notices))
+	for _, n := range notices {
+		byID[n.ID] = n
+	}
+	ordered := make([]models.Notice, 0, len(ids))
+	for _, id := range ids {
+		if n, ok := byID[id]; ok {
+			ordered = append(ordered, n)
 		}
-
-		var count int64
-		if err := tx.Model(&models.Building{}).Where("id IN ?", buildingIDList).Count(&count).Error; err != nil {
-			return err
-		}
-		if int(count) != len(buildingIDs) {
-			return errors.New("one or more buildings not found")
-		}
-
-		// Verify device IDs are unique
-		deviceIDs := make(map[string]bool)
-		deviceIDList := make([]string, 0)
-		for _, device := range devices {
-			if deviceIDs[device.DeviceID] {
-				return errors.New("duplicate device ID found")
-			}
-			deviceIDs[device.DeviceID] = true
-			deviceIDList = append(deviceIDList, device.DeviceID)
-		}
-
-		// Check if any device IDs already exist in database
-		var existingCount int64
-		if err := tx.Model(&models.Device{}).Where("device_id IN ?", deviceIDList).Count(&existingCount).Error; err != nil {
-			return err
-		}
-		if existingCount > 0 {
-			return errors.New("one or more device IDs already exist")
-		}
-
-		// Create all devices
-		for _, device := range devices {
-			if err := tx.Create(device).Error; err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	}
+	return ordered, nil
 }
 
 func (s *DeviceService) GetDeviceAdvertisements(deviceId string) ([]models.Advertisement, error) {
@@ -521,6 +750,70 @@ func (s *DeviceService) GetDeviceNotices(deviceId string) ([]models.Notice, erro
 	}
 
 	return notices, nil
+}
+
+// GetDeviceTopAdvertisements returns active advertisements for device's building with display top or topfull
+func (s *DeviceService) GetDeviceTopAdvertisements(deviceId string) ([]models.Advertisement, error) {
+	var device models.Device
+	if err := s.db.Where("device_id = ?", deviceId).First(&device).Error; err != nil {
+		return nil, fmt.Errorf("device not found: %v", err)
+	}
+	if device.BuildingID == 0 {
+		return nil, fmt.Errorf("device is not bound to any building")
+	}
+	var advertisements []models.Advertisement
+	if err := s.db.
+		Joins("JOIN advertisement_buildings ON advertisements.id = advertisement_buildings.advertisement_id").
+		Where("advertisement_buildings.building_id = ? AND advertisements.status = ? AND advertisements.display IN ?", device.BuildingID, field.Status("active"), []field.AdvertisementDisplay{field.AdDisplayTop, field.AdDisplayTopFull}).
+		Preload("File").
+		Find(&advertisements).Error; err != nil {
+		return nil, fmt.Errorf("failed to get top advertisements: %v", err)
+	}
+	now := time.Now()
+	for i := range advertisements {
+		if advertisements[i].File != nil && advertisements[i].File.ID == 0 {
+			advertisements[i].File = nil
+		}
+		if advertisements[i].EndTime.Before(now) && advertisements[i].Status == field.Status("active") {
+			if err := s.db.Model(&models.Advertisement{}).Where("id = ?", advertisements[i].ID).Update("status", field.Status("inactive")).Error; err != nil {
+				return nil, fmt.Errorf("failed to update advertisement status: %v", err)
+			}
+			advertisements[i].Status = field.Status("inactive")
+		}
+	}
+	return advertisements, nil
+}
+
+// GetDeviceFullAdvertisements returns active advertisements for device's building with display full or topfull
+func (s *DeviceService) GetDeviceFullAdvertisements(deviceId string) ([]models.Advertisement, error) {
+	var device models.Device
+	if err := s.db.Where("device_id = ?", deviceId).First(&device).Error; err != nil {
+		return nil, fmt.Errorf("device not found: %v", err)
+	}
+	if device.BuildingID == 0 {
+		return nil, fmt.Errorf("device is not bound to any building")
+	}
+	var advertisements []models.Advertisement
+	if err := s.db.
+		Joins("JOIN advertisement_buildings ON advertisements.id = advertisement_buildings.advertisement_id").
+		Where("advertisement_buildings.building_id = ? AND advertisements.status = ? AND advertisements.display IN ?", device.BuildingID, field.Status("active"), []field.AdvertisementDisplay{field.AdDisplayFull, field.AdDisplayTopFull}).
+		Preload("File").
+		Find(&advertisements).Error; err != nil {
+		return nil, fmt.Errorf("failed to get full advertisements: %v", err)
+	}
+	now := time.Now()
+	for i := range advertisements {
+		if advertisements[i].File != nil && advertisements[i].File.ID == 0 {
+			advertisements[i].File = nil
+		}
+		if advertisements[i].EndTime.Before(now) && advertisements[i].Status == field.Status("active") {
+			if err := s.db.Model(&models.Advertisement{}).Where("id = ?", advertisements[i].ID).Update("status", field.Status("inactive")).Error; err != nil {
+				return nil, fmt.Errorf("failed to update advertisement status: %v", err)
+			}
+			advertisements[i].Status = field.Status("inactive")
+		}
+	}
+	return advertisements, nil
 }
 
 // DeviceWithStatus 用于返回带状态的设备信息

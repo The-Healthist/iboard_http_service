@@ -1,10 +1,7 @@
 services:
   backend:
-    build:
-      context: .
-      args:
-        VERSION: ${VERSION:-1.0.0}
-    image: iboard_http_service:${VERSION:-1.0.0}
+    image: stonesea/iboard_http_service:1.1.3
+    # build: .
     container_name: iboard_http_service
     restart: always
     ports:
@@ -39,23 +36,23 @@ services:
       - iboard-network
 
   mysql:
-    image: mysql:8.0
+    image: stonesea/iboard-mysql:1.1.2
     container_name: iboard_mysql
     restart: always
     ports:
       - '3308:3306'
     environment:
       - TZ=Asia/Shanghai
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
       - MYSQL_DATABASE=iboard_db
     volumes:
-      - mysql_data:/var/lib/mysql
+      - iboard_mysql_data1.1.2:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password
     networks:
       - iboard-network
 
   redis:
-    image: redis:7.4.1
+    image: stonesea/iboard-redis:1.1.2
     container_name: iboard_redis
     restart: always
     ports:
@@ -63,7 +60,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - redis_data:/data
+      - iboard_redis_data1.1.2:/data
     networks:
       - iboard-network
 
@@ -72,7 +69,7 @@ networks:
     driver: bridge
 
 volumes:
-  mysql_data:
-    name: iboard_mysql_data
-  redis_data:
-    name: iboard_redis_data
+  iboard_mysql_data1.1.2:
+    name: iboard_mysql_data1.1.2
+  iboard_redis_data1.1.2:
+    name: iboard_redis_data1.1.2

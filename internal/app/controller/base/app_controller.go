@@ -1,61 +1,94 @@
 package http_base_controller
 
 import (
-    "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
-    "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
-    "github.com/gin-gonic/gin"
+	models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
+	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
+	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
+	"github.com/gin-gonic/gin"
 )
 
 // AppController 应用版本控制器
 type AppController struct {
-    Ctx       *gin.Context
-    Container *container.ServiceContainer
+	Ctx       *gin.Context
+	Container *container.ServiceContainer
 }
 
 // NewAppController 创建控制器
 func NewAppController(ctx *gin.Context, container *container.ServiceContainer) *AppController {
-    return &AppController{Ctx: ctx, Container: container}
+	return &AppController{Ctx: ctx, Container: container}
 }
 
 // HandleFuncApp 根据方法返回处理函数
 func HandleFuncApp(container *container.ServiceContainer, method string) gin.HandlerFunc {
-    switch method {
-    // 1.Get 获取 App 版本
-    case "get":
-        return func(ctx *gin.Context) { NewAppController(ctx, container).Get() }
-    // 2.Update 更新 App 版本
-    case "update":
-        return func(ctx *gin.Context) { NewAppController(ctx, container).Update() }
-    default:
-        return func(ctx *gin.Context) { ctx.JSON(400, gin.H{"error": "invalid method"}) }
-    }
+	switch method {
+	// 获取应用版本配置
+	case "get":
+		return func(ctx *gin.Context) { NewAppController(ctx, container).Get() }
+	// 更新应用版本配置
+	case "update":
+		return func(ctx *gin.Context) { NewAppController(ctx, container).Update() }
+	default:
+		return func(ctx *gin.Context) { ctx.JSON(400, gin.H{"error": "invalid method"}) }
+	}
 }
 
-// 1.Get 获取App版本
+// Get 获取应用版本配置
+// @Summary      获取应用版本配置
+// @Description  获取当前应用版本配置信息，包括当前使用的版本详情
+// @Tags         App
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{} "返回应用版本配置信息"
+// @Failure      500  {object}  map[string]interface{} "错误信息"
+// @Router       /api/app/version [get]
 func (c *AppController) Get() {
-    app, err := c.Container.GetService("app").(base_services.InterfaceAppService).Get()
-    if err != nil {
-        c.Ctx.JSON(500, gin.H{"error": err.Error()})
-        return
-    }
-    c.Ctx.JSON(200, gin.H{"data": app})
+	app, err := c.Container.GetService("app").(base_services.InterfaceAppService).Get()
+	if err != nil {
+		c.Ctx.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 确保返回的数据结构清晰
+	response := gin.H{
+		"data": gin.H{
+			"id":               app.ID,
+			"currentVersionId": app.CurrentVersionID,
+			"currentVersion":   app.CurrentVersion,
+			"lastCheckTime":    app.LastCheckTime,
+			"updateInterval":   app.UpdateInterval,
+			"autoUpdate":       app.AutoUpdate,
+			"status":           app.Status,
+			"createdAt":        app.CreatedAt,
+			"updatedAt":        app.UpdatedAt,
+		},
+		"message": "Get app version config success",
+	}
+
+	c.Ctx.JSON(200, response)
 }
 
-// 2.Update 更新App版本
+// Update 更新应用版本配置
+// @Summary      更新应用版本配置
+// @Description  更新应用版本配置信息，包括设置当前使用的版本
+// @Tags         App
+// @Accept       json
+// @Produce      json
+// @Param        app body models.App true "应用版本配置信息"
+// @Success      200  {object}  map[string]interface{} "返回更新后的应用版本配置信息"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /api/admin/app/version [put]
+// @Security     BearerAuth
 func (c *AppController) Update() {
-    var form struct {
-        Version string `json:"version" binding:"required"`
-    }
-    if err := c.Ctx.ShouldBindJSON(&form); err != nil {
-        c.Ctx.JSON(400, gin.H{"error": err.Error(), "message": "invalid form"})
-        return
-    }
-    app, err := c.Container.GetService("app").(base_services.InterfaceAppService).Update(form.Version)
-    if err != nil {
-        c.Ctx.JSON(400, gin.H{"error": err.Error()})
-        return
-    }
-    c.Ctx.JSON(200, gin.H{"message": "update success", "data": app})
+	var app models.App
+	if err := c.Ctx.ShouldBindJSON(&app); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error(), "message": "invalid form"})
+		return
+	}
+
+	updatedApp, err := c.Container.GetService("app").(base_services.InterfaceAppService).Update(&app)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"message": "Update app version config success", "data": updatedApp})
 }
-
-

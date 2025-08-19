@@ -67,71 +67,44 @@ func (c *UploadController) GetUploadParams() {
 
 	log.Info("处理上传参数请求 | %v", requestID)
 
-	// Get JWT claims
+	// 默认上传者信息（使用默认超级管理员）
+	var uploaderID uint = 1
+	var uploaderType string = "superAdmin"
+	var uploaderEmail string = "admin@example.com"
+
+	// Try to get JWT claims if available (optional now)
 	claims, exists := c.Ctx.Get("claims")
-	if !exists {
-		log.Warn("未找到JWT声明 | %v", requestID)
-		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Unauthorized",
-		})
-		return
-	}
+	if exists {
+		mapClaims, ok := claims.(jwt.MapClaims)
+		if ok {
+			// Parse and validate claims if JWT is present
+			isAdmin, _ := mapClaims["isAdmin"].(bool)
+			isBuildingAdmin, _ := mapClaims["isBuildingAdmin"].(bool)
 
-	mapClaims, ok := claims.(jwt.MapClaims)
-	if !ok {
-		log.Warn("无效的JWT声明格式 | %v", requestID)
-		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Invalid token claims format",
-		})
-		return
-	}
-
-	// Parse and validate claims
-	var uploaderID uint
-	var uploaderType string
-	var uploaderEmail string
-
-	isAdmin, _ := mapClaims["isAdmin"].(bool)
-	isBuildingAdmin, _ := mapClaims["isBuildingAdmin"].(bool)
-
-	if isAdmin {
-		// Handle super admin case
-		if id, ok := mapClaims["id"].(float64); ok {
-			uploaderID = uint(id)
-			uploaderType = "superAdmin"
-			if email, ok := mapClaims["email"].(string); ok {
-				uploaderEmail = email
+			if isAdmin {
+				// Handle super admin case
+				if id, ok := mapClaims["id"].(float64); ok {
+					uploaderID = uint(id)
+					uploaderType = "superAdmin"
+					if email, ok := mapClaims["email"].(string); ok {
+						uploaderEmail = email
+					}
+					log.Info("识别为超级管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
+				}
+			} else if isBuildingAdmin {
+				// Handle building admin case
+				if id, ok := mapClaims["id"].(float64); ok {
+					uploaderID = uint(id)
+					uploaderType = "buildingAdmin"
+					if email, ok := mapClaims["email"].(string); ok {
+						uploaderEmail = email
+					}
+					log.Info("识别为建筑管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
+				}
 			}
-			log.Info("识别为超级管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
-		} else {
-			log.Warn("令牌中的管理员ID无效 | %v", requestID)
-			c.Ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid admin ID",
-			})
-			return
-		}
-	} else if isBuildingAdmin {
-		// Handle building admin case
-		if id, ok := mapClaims["id"].(float64); ok {
-			uploaderID = uint(id)
-			uploaderType = "buildingAdmin"
-			if email, ok := mapClaims["email"].(string); ok {
-				uploaderEmail = email
-			}
-			log.Info("识别为建筑管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
-		} else {
-			log.Warn("令牌中的建筑管理员ID无效 | %v", requestID)
-			c.Ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid building admin ID",
-			})
-			return
 		}
 	} else {
-		log.Warn("无效的上传者类型 | %v", requestID)
-		c.Ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid uploader type",
-		})
-		return
+		log.Info("无JWT认证，使用默认超级管理员作为上传者 | %v", requestID)
 	}
 
 	// Save uploader info to cache
@@ -163,8 +136,20 @@ func (c *UploadController) GetUploadParams() {
 	newFileName := uuid.New().String() + ext
 	fullPath := dir + newFileName
 
-	// Get upload policy
-	policy, err := c.Container.GetService("upload").(base_services.IUploadService).GetUploadParams(fullPath)
+	// Get upload policy - use no callback for APK files to avoid timeout
+	var policy map[string]interface{}
+	var err error
+
+	if strings.ToLower(path.Ext(req.FileName)) == ".apk" {
+		// Use no callback method for APK files to avoid callback timeout issues
+		policy, err = c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsNoCallback(fullPath)
+		log.Info("使用无回调上传方式处理APK文件 | %v", requestID)
+	} else {
+		// Use normal callback method for other files
+		policy, err = c.Container.GetService("upload").(base_services.IUploadService).GetUploadParams(fullPath)
+		log.Info("使用回调上传方式处理普通文件 | %v | 文件类型: %s", requestID, path.Ext(req.FileName))
+	}
+
 	if err != nil {
 		log.Error("获取上传参数失败 | %v | %v", requestID, err)
 		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -323,71 +308,44 @@ func (c *UploadController) GetUploadParamsSync() {
 
 	log.Info("处理同步上传参数请求 | %v", requestID)
 
-	// Get JWT claims
+	// 默认上传者信息（使用默认超级管理员，特别是同步服务）
+	var uploaderID uint = 1
+	var uploaderType string = "superAdmin"
+	var uploaderEmail string = "admin@example.com"
+
+	// Try to get JWT claims if available (optional now)
 	claims, exists := c.Ctx.Get("claims")
-	if !exists {
-		log.Warn("未找到JWT声明 | %v", requestID)
-		c.Ctx.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Unauthorized",
-		})
-		return
-	}
+	if exists {
+		mapClaims, ok := claims.(jwt.MapClaims)
+		if ok {
+			// Parse and validate claims if JWT is present
+			isAdmin, _ := mapClaims["isAdmin"].(bool)
+			isBuildingAdmin, _ := mapClaims["isBuildingAdmin"].(bool)
 
-	mapClaims, ok := claims.(jwt.MapClaims)
-	if !ok {
-		log.Warn("无效的JWT声明格式 | %v", requestID)
-		c.Ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Invalid token claims format",
-		})
-		return
-	}
-
-	// Parse and validate claims
-	var uploaderID uint
-	var uploaderType string
-	var uploaderEmail string
-
-	isAdmin, _ := mapClaims["isAdmin"].(bool)
-	isBuildingAdmin, _ := mapClaims["isBuildingAdmin"].(bool)
-
-	if isAdmin {
-		// Handle super admin case
-		if id, ok := mapClaims["id"].(float64); ok {
-			uploaderID = uint(id)
-			uploaderType = "superAdmin"
-			if email, ok := mapClaims["email"].(string); ok {
-				uploaderEmail = email
+			if isAdmin {
+				// Handle super admin case
+				if id, ok := mapClaims["id"].(float64); ok {
+					uploaderID = uint(id)
+					uploaderType = "superAdmin"
+					if email, ok := mapClaims["email"].(string); ok {
+						uploaderEmail = email
+					}
+					log.Info("识别为超级管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
+				}
+			} else if isBuildingAdmin {
+				// Handle building admin case
+				if id, ok := mapClaims["id"].(float64); ok {
+					uploaderID = uint(id)
+					uploaderType = "buildingAdmin"
+					if email, ok := mapClaims["email"].(string); ok {
+						uploaderEmail = email
+					}
+					log.Info("识别为建筑管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
+				}
 			}
-			log.Info("识别为超级管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
-		} else {
-			log.Warn("令牌中的管理员ID无效 | %v", requestID)
-			c.Ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid admin ID",
-			})
-			return
-		}
-	} else if isBuildingAdmin {
-		// Handle building admin case
-		if id, ok := mapClaims["id"].(float64); ok {
-			uploaderID = uint(id)
-			uploaderType = "buildingAdmin"
-			if email, ok := mapClaims["email"].(string); ok {
-				uploaderEmail = email
-			}
-			log.Info("识别为建筑管理员 | %v | ID: %d, 邮箱: %s", requestID, uploaderID, uploaderEmail)
-		} else {
-			log.Warn("令牌中的建筑管理员ID无效 | %v", requestID)
-			c.Ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid building admin ID",
-			})
-			return
 		}
 	} else {
-		log.Warn("无效的上传者类型 | %v", requestID)
-		c.Ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid uploader type",
-		})
-		return
+		log.Info("无JWT认证，使用默认超级管理员作为上传者（同步服务） | %v", requestID)
 	}
 
 	// Save uploader info to cache

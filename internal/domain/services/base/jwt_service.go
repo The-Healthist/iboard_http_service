@@ -29,7 +29,7 @@ type JWTService struct {
 }
 
 func NewJWTService() IJWTService {
-	log.Info("初始化JWT服务")
+	// log.Info("初始化JWT服务")
 	return &JWTService{
 		secretKey: GetSecretKey(),
 	}
@@ -38,7 +38,7 @@ func NewJWTService() IJWTService {
 func GetSecretKey() string {
 	secret := os.Getenv("SECRET")
 	if secret == "" {
-		log.Warn("未设置JWT密钥环境变量，使用默认密钥")
+		// log.Warn("未设置JWT密钥环境变量，使用默认密钥")
 		secret = "secret"
 	}
 	return secret

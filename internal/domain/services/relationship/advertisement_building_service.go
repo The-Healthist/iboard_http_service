@@ -1,10 +1,14 @@
 package http_relationship_service
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	"github.com/The-Healthist/iboard_http_service/pkg/log"
+	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -52,57 +56,91 @@ func (s *AdvertisementBuildingService) BindBuildings(advertisementID uint, build
 			return errors.New("some buildings not found")
 		}
 
-		// check if the relationship already exists
-		for _, buildingID := range buildingIDs {
-			var count int64
-			if err := tx.Table("advertisement_buildings").
-				Where("advertisement_id = ? AND building_id = ?", advertisementID, buildingID).
-				Count(&count).Error; err != nil {
-				log.Error("检查广告与建筑关系失败 | 广告ID: %d | 建筑ID: %d | 错误: %v", advertisementID, buildingID, err)
-				return err
-			}
+		// 检查现有关系
+		var existingRelations []struct {
+			BuildingID uint `gorm:"column:building_id"`
+		}
+		if err := tx.Table("advertisement_buildings").
+			Select("building_id").
+			Where("advertisement_id = ? AND building_id IN ?", advertisementID, buildingIDs).
+			Find(&existingRelations).Error; err != nil {
+			log.Error("查询现有关系失败 | 广告ID: %d | 错误: %v", advertisementID, err)
+			return err
+		}
 
-			// if not exists, insert
-			if count == 0 {
-				if err := tx.Exec(
-					"INSERT INTO advertisement_buildings (advertisement_id, building_id) VALUES (?, ?)",
-					advertisementID, buildingID,
-				).Error; err != nil {
-					log.Error("插入广告与建筑关系失败 | 广告ID: %d | 建筑ID: %d | 错误: %v", advertisementID, buildingID, err)
-					return err
-				}
-				log.Info("成功绑定广告与建筑 | 广告ID: %d | 建筑ID: %d", advertisementID, buildingID)
-			} else {
-				log.Debug("广告与建筑关系已存在 | 广告ID: %d | 建筑ID: %d", advertisementID, buildingID)
+		// 过滤掉已存在的关系
+		existingBuildingIDs := make(map[uint]bool)
+		for _, relation := range existingRelations {
+			existingBuildingIDs[relation.BuildingID] = true
+		}
+
+		var newBuildingIDs []uint
+		for _, buildingID := range buildingIDs {
+			if !existingBuildingIDs[buildingID] {
+				newBuildingIDs = append(newBuildingIDs, buildingID)
 			}
 		}
 
-		log.Info("成功完成广告与建筑绑定 | 广告ID: %d | 建筑数量: %d", advertisementID, len(buildingIDs))
+		if len(newBuildingIDs) == 0 {
+			log.Info("所有建筑都已绑定到该广告 | 广告ID: %d", advertisementID)
+			return nil
+		}
+
+		// 创建新的绑定关系
+		for _, buildingID := range newBuildingIDs {
+			if err := tx.Exec(
+				"INSERT INTO advertisement_buildings (advertisement_id, building_id) VALUES (?, ?)",
+				advertisementID, buildingID,
+			).Error; err != nil {
+				log.Error("创建广告建筑关系失败 | 广告ID: %d | 建筑ID: %d | 错误: %v", advertisementID, buildingID, err)
+				return err
+			}
+		}
+
+		// 获取广告信息以确定其 display 类型
+		var advertisement base_models.Advertisement
+		if err := tx.First(&advertisement, advertisementID).Error; err != nil {
+			log.Error("获取广告信息失败 | 广告ID: %d | 错误: %v", advertisementID, err)
+			return err
+		}
+
+		// 同步更新相关 device 的轮播列表
+		if err := s.syncDeviceCarouselLists(tx, advertisementID, newBuildingIDs, advertisement.Display, true); err != nil {
+			log.Error("同步设备轮播列表失败 | 广告ID: %d | 错误: %v", advertisementID, err)
+			return err
+		}
+
+		log.Info("成功绑定建筑到广告 | 广告ID: %d | 新绑定建筑数量: %d", advertisementID, len(newBuildingIDs))
 		return nil
 	})
 }
 
 func (s *AdvertisementBuildingService) UnbindBuildings(advertisementID uint, buildingIDs []uint) error {
-	log.Info("解绑广告与多个建筑 | 广告ID: %d | 建筑数量: %d", advertisementID, len(buildingIDs))
+	log.Info("解绑建筑与广告 | 广告ID: %d | 建筑数量: %d", advertisementID, len(buildingIDs))
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 获取广告信息以确定其 display 类型
 		var advertisement base_models.Advertisement
-		if err := tx.Preload("Buildings").First(&advertisement, advertisementID).Error; err != nil {
-			log.Error("查找广告失败 | 广告ID: %d | 错误: %v", advertisementID, err)
+		if err := tx.First(&advertisement, advertisementID).Error; err != nil {
+			log.Error("获取广告信息失败 | 广告ID: %d | 错误: %v", advertisementID, err)
 			return err
 		}
 
-		var buildings []base_models.Building
-		if err := tx.Find(&buildings, buildingIDs).Error; err != nil {
-			log.Error("查找建筑失败 | 建筑IDs: %v | 错误: %v", buildingIDs, err)
+		// 同步更新相关 device 的轮播列表（在删除关系之前）
+		if err := s.syncDeviceCarouselLists(tx, advertisementID, buildingIDs, advertisement.Display, false); err != nil {
+			log.Error("同步设备轮播列表失败 | 广告ID: %d | 错误: %v", advertisementID, err)
 			return err
 		}
 
-		if err := tx.Model(&advertisement).Association("Buildings").Delete(&buildings); err != nil {
-			log.Error("解除广告与建筑关联失败 | 广告ID: %d | 错误: %v", advertisementID, err)
+		// 删除绑定关系
+		if err := tx.Exec(
+			"DELETE FROM advertisement_buildings WHERE advertisement_id = ? AND building_id IN ?",
+			advertisementID, buildingIDs,
+		).Error; err != nil {
+			log.Error("删除广告建筑关系失败 | 广告ID: %d | 建筑IDs: %v | 错误: %v", advertisementID, buildingIDs, err)
 			return err
 		}
 
-		log.Info("成功解绑广告与多个建筑 | 广告ID: %d | 建筑数量: %d", advertisementID, len(buildingIDs))
+		log.Info("成功解绑建筑与广告 | 广告ID: %d | 解绑建筑数量: %d", advertisementID, len(buildingIDs))
 		return nil
 	})
 }
@@ -206,4 +244,130 @@ func (s *AdvertisementBuildingService) BulkCheckBuildingsExistence(buildingIDs [
 	}
 
 	return missingIDs, nil
+}
+
+// syncDeviceCarouselLists 同步更新 device 的轮播列表
+func (s *AdvertisementBuildingService) syncDeviceCarouselLists(tx *gorm.DB, advertisementID uint, buildingIDs []uint, display field.AdvertisementDisplay, isBind bool) error {
+	// 获取这些建筑下的所有 device
+	var devices []base_models.Device
+	if err := tx.Where("building_id IN ?", buildingIDs).Find(&devices).Error; err != nil {
+		return fmt.Errorf("failed to get devices: %v", err)
+	}
+
+	if len(devices) == 0 {
+		log.Info("没有找到需要同步的设备 | 建筑IDs: %v", buildingIDs)
+		return nil
+	}
+
+	for _, device := range devices {
+		if err := s.updateDeviceCarouselList(tx, &device, advertisementID, display, isBind); err != nil {
+			log.Error("更新设备轮播列表失败 | 设备ID: %d | 广告ID: %d | 错误: %v", device.ID, advertisementID, err)
+			return err
+		}
+	}
+
+	log.Info("成功同步设备轮播列表 | 广告ID: %d | 设备数量: %d | 操作: %s", advertisementID, len(devices), map[bool]string{true: "bind", false: "unbind"}[isBind])
+	return nil
+}
+
+// updateDeviceCarouselList 更新单个设备的轮播列表
+func (s *AdvertisementBuildingService) updateDeviceCarouselList(tx *gorm.DB, device *base_models.Device, advertisementID uint, display field.AdvertisementDisplay, isBind bool) error {
+	var currentList []uint
+	var err error
+
+	// 根据 display 类型选择对应的轮播列表
+	switch display {
+	case field.AdDisplayTop:
+		currentList, err = s.getCarouselListFromJSON(device.TopAdvertisementCarouselList)
+	case field.AdDisplayFull:
+		currentList, err = s.getCarouselListFromJSON(device.FullAdvertisementCarouselList)
+	case field.AdDisplayTopFull:
+		// topfull 类型需要同时更新两个列表
+		if err := s.updateDeviceCarouselList(tx, device, advertisementID, field.AdDisplayTop, isBind); err != nil {
+			return err
+		}
+		return s.updateDeviceCarouselList(tx, device, advertisementID, field.AdDisplayFull, isBind)
+	default:
+		log.Warn("未知的广告显示类型 | 类型: %s", display)
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to parse carousel list: %v", err)
+	}
+
+	// 更新列表
+	if isBind {
+		// 绑定：添加到列表末尾（如果不存在）
+		if !s.containsID(currentList, advertisementID) {
+			currentList = append(currentList, advertisementID)
+		}
+	} else {
+		// 解绑：从列表中移除
+		currentList = s.removeID(currentList, advertisementID)
+	}
+
+	// 保存更新后的列表
+	if err := s.saveCarouselListToJSON(tx, device.ID, currentList, display); err != nil {
+		return fmt.Errorf("failed to save carousel list: %v", err)
+	}
+
+	return nil
+}
+
+// getCarouselListFromJSON 从 JSON 字段解析轮播列表
+func (s *AdvertisementBuildingService) getCarouselListFromJSON(jsonData datatypes.JSON) ([]uint, error) {
+	if len(jsonData) == 0 {
+		return []uint{}, nil
+	}
+	var list []uint
+	if err := json.Unmarshal(jsonData, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// saveCarouselListToJSON 保存轮播列表到 JSON 字段
+func (s *AdvertisementBuildingService) saveCarouselListToJSON(tx *gorm.DB, deviceID uint, list []uint, display field.AdvertisementDisplay) error {
+	jsonData, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+
+	var fieldName string
+	switch display {
+	case field.AdDisplayTop:
+		fieldName = "top_advertisement_carousel_list"
+	case field.AdDisplayFull:
+		fieldName = "full_advertisement_carousel_list"
+	default:
+		return fmt.Errorf("unsupported display type: %s", display)
+	}
+
+	if err := tx.Model(&base_models.Device{}).Where("id = ?", deviceID).Update(fieldName, jsonData).Error; err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// containsID 检查列表中是否包含指定 ID
+func (s *AdvertisementBuildingService) containsID(list []uint, id uint) bool {
+	for _, item := range list {
+		if item == id {
+			return true
+		}
+	}
+	return false
+}
+
+// removeID 从列表中移除指定 ID
+func (s *AdvertisementBuildingService) removeID(list []uint, id uint) []uint {
+	var result []uint
+	for _, item := range list {
+		if item != id {
+			result = append(result, item)
+		}
+	}
+	return result
 }

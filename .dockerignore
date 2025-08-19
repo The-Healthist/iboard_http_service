@@ -1,0 +1,17 @@
+data/
+logs/
+backup/
+# 忽略所有 SQL 和 RDB 文件
+*.sql
+*.rdb
+# 放行数据库备份文件
+!iboard_db_backup.sql
+!redis_dump.rdb
+.git/
+node_modules/
+*.md
+scripts/
+docs/*
+# 允许把代码生成的 swagger 包复制进来
+!docs/docs_swagger/
+!docs/docs_swagger/**

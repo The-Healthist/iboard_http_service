@@ -1691,7 +1691,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "根据查询条件获取设备列表，包含设备状态",
+                "description": "根据查询条件获取设备列表，包含设备状态和分页信息",
                 "consumes": [
                     "application/json"
                 ],
@@ -1701,7 +1701,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "获取设备列表",
+                "summary": "2. 获取设备列表",
                 "parameters": [
                     {
                         "type": "string",
@@ -1754,7 +1754,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "更新设备信息，包括设备ID、所属建筑和设置",
+                "description": "更新设备信息，包括设备ID、所属建筑和设置，支持设备重新绑定到新建筑",
                 "consumes": [
                     "application/json"
                 ],
@@ -1764,7 +1764,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "更新设备",
+                "summary": "3. 更新设备",
                 "parameters": [
                     {
                         "description": "设备更新信息",
@@ -1866,7 +1866,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "创建一个新的设备",
+                "description": "创建一个新的设备，包含设备ID、所属建筑和设置信息",
                 "consumes": [
                     "application/json"
                 ],
@@ -1876,7 +1876,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "创建设备",
+                "summary": "1. 创建设备",
                 "parameters": [
                     {
                         "description": "设备信息",
@@ -1973,7 +1973,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "删除一个或多个设备",
+                "description": "删除一个或多个设备，支持批量删除操作",
                 "consumes": [
                     "application/json"
                 ],
@@ -1983,7 +1983,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "删除设备",
+                "summary": "4. 删除设备",
                 "parameters": [
                     {
                         "description": "设备ID列表",
@@ -2274,7 +2274,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "根据ID获取设备详细信息",
+                "description": "根据ID获取设备详细信息，包含设备状态信息",
                 "consumes": [
                     "application/json"
                 ],
@@ -2284,7 +2284,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "获取单个设备",
+                "summary": "5. 获取单个设备",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2326,7 +2326,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "批量创建多个设备",
+                "description": "批量创建多个设备，支持一次性创建多个设备配置",
                 "consumes": [
                     "application/json"
                 ],
@@ -2336,7 +2336,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "批量创建设备",
+                "summary": "6. 批量创建设备",
                 "parameters": [
                     {
                         "description": "设备信息数组",
@@ -2493,6 +2493,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
+                        "format": "int64",
                         "description": "文件大小",
                         "name": "size",
                         "in": "formData"
@@ -2575,6 +2576,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
+                        "format": "int64",
                         "description": "文件大小",
                         "name": "size",
                         "in": "formData",
@@ -3249,6 +3251,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
+                        "format": "int64",
                         "description": "文件大小",
                         "name": "size",
                         "in": "formData",
@@ -4427,14 +4430,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/device/client/advertisements": {
+        "/device/carousel/full_advertisements": {
             "get": {
                 "security": [
                     {
                         "JWT": []
                     }
                 ],
-                "description": "根据设备ID获取分配给该设备的广告",
+                "description": "根据设备ID获取全屏广告轮播的排序ID列表",
                 "consumes": [
                     "application/json"
                 ],
@@ -4444,7 +4447,448 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "获取设备广告",
+                "summary": "13. 获取全屏广告轮播顺序",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回全屏广告轮播ID列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "更新设备全屏广告轮播顺序，支持全量替换现有顺序",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "14. 更新全屏广告轮播顺序",
+                "parameters": [
+                    {
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "广告数据数组",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Advertisement"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回更新后的完整广告列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/device/carousel/full_advertisements/resolved": {
+            "get": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "根据设备ID获取全屏广告轮播的完整详细信息列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "18. 获取全屏广告详细列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回全屏广告完整信息列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/device/carousel/notices": {
+            "get": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "根据设备ID获取公告轮播的排序ID列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "15. 获取公告轮播顺序",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回公告轮播ID列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "更新设备公告轮播顺序，支持全量替换现有顺序",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "16. 更新公告轮播顺序",
+                "parameters": [
+                    {
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "公告数据数组",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Notice"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回更新后的完整公告列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/device/carousel/notices/resolved": {
+            "get": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "根据设备ID获取公告轮播的完整详细信息列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "19. 获取公告详细列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回公告完整信息列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/device/carousel/top_advertisements": {
+            "get": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "根据设备ID获取顶部广告轮播的排序ID列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "11. 获取顶部广告轮播顺序",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回顶部广告轮播ID列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "更新设备顶部广告轮播顺序，支持全量替换现有顺序",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "12. 更新顶部广告轮播顺序",
+                "parameters": [
+                    {
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "广告数据数组",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Advertisement"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回更新后的完整广告列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/device/carousel/top_advertisements/resolved": {
+            "get": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "根据设备ID获取顶部广告轮播的完整详细信息列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "17. 获取顶部广告详细列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "设备ID",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "返回顶部广告完整信息列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "错误信息",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/device/client/advertisements": {
+            "get": {
+                "security": [
+                    {
+                        "JWT": []
+                    }
+                ],
+                "description": "根据设备ID获取分配给该设备的广告列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Device"
+                ],
+                "summary": "8. 获取设备广告",
                 "responses": {
                     "200": {
                         "description": "返回设备广告列表",
@@ -4477,7 +4921,7 @@ const docTemplate = `{
                         "JWT": []
                     }
                 ],
-                "description": "设备上报健康状态，用于检测设备是否在线",
+                "description": "设备上报健康状态，用于检测设备是否在线，更新设备最后活跃时间",
                 "consumes": [
                     "application/json"
                 ],
@@ -4487,7 +4931,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "设备健康测试",
+                "summary": "10. 设备健康测试",
                 "parameters": [
                     {
                         "description": "健康测试数据",
@@ -4523,7 +4967,7 @@ const docTemplate = `{
                         "JWT": []
                     }
                 ],
-                "description": "根据设备ID获取分配给该设备的通知",
+                "description": "根据设备ID获取分配给该设备的通知列表",
                 "consumes": [
                     "application/json"
                 ],
@@ -4533,7 +4977,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "获取设备通知",
+                "summary": "9. 获取设备通知",
                 "responses": {
                     "200": {
                         "description": "返回设备通知列表",
@@ -4566,7 +5010,7 @@ const docTemplate = `{
                         "None": []
                     }
                 ],
-                "description": "设备登录获取JWT令牌",
+                "description": "设备登录获取JWT令牌，用于后续接口认证",
                 "consumes": [
                     "application/json"
                 ],
@@ -4576,7 +5020,7 @@ const docTemplate = `{
                 "tags": [
                     "Device"
                 ],
-                "summary": "设备登录",
+                "summary": "7. 设备登录",
                 "parameters": [
                     {
                         "description": "登录信息",
@@ -4653,6 +5097,17 @@ const docTemplate = `{
             ],
             "x-enum-varnames": [
                 "FileTypePdf"
+            ]
+        },
+        "field.FileUploaderType": {
+            "type": "string",
+            "enum": [
+                "buildingAdmin",
+                "superAdmin"
+            ],
+            "x-enum-varnames": [
+                "UploaderTypeBuildingAdmin",
+                "UploaderTypeSuperAdmin"
             ]
         },
         "field.NoticeType": {
@@ -4891,6 +5346,187 @@ const docTemplate = `{
                 "password": {
                     "type": "string",
                     "example": "newpassword123"
+                }
+            }
+        },
+        "models.Advertisement": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "deletedAt": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display": {
+                    "description": "full, top, topfull",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/field.AdvertisementDisplay"
+                        }
+                    ]
+                },
+                "duration": {
+                    "type": "integer"
+                },
+                "endTime": {
+                    "type": "string"
+                },
+                "file": {
+                    "$ref": "#/definitions/models.File"
+                },
+                "fileId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isPublic": {
+                    "type": "boolean"
+                },
+                "priority": {
+                    "description": "0 - 100, 100 is the highest priority (default 0)",
+                    "type": "integer"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "pending, active, inactive",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/field.Status"
+                        }
+                    ]
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "video, image",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/field.AdvertisementType"
+                        }
+                    ]
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.File": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "deletedAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "md5": {
+                    "type": "string"
+                },
+                "mimeType": {
+                    "type": "string"
+                },
+                "oss": {
+                    "type": "string"
+                },
+                "path": {
+                    "description": "唯一索引",
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "uploader": {
+                    "type": "string"
+                },
+                "uploaderId": {
+                    "type": "integer"
+                },
+                "uploaderType": {
+                    "$ref": "#/definitions/field.FileUploaderType"
+                }
+            }
+        },
+        "models.Notice": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "deletedAt": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "endTime": {
+                    "type": "string"
+                },
+                "file": {
+                    "$ref": "#/definitions/models.File"
+                },
+                "fileId": {
+                    "type": "integer"
+                },
+                "fileType": {
+                    "default": "pdf",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/field.FileType"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isIsmartNotice": {
+                    "description": "use for sync with ismart notice",
+                    "type": "boolean"
+                },
+                "isPublic": {
+                    "type": "boolean"
+                },
+                "priority": {
+                    "description": "0 - 100, 100 is the highest priority (default 0)",
+                    "type": "integer"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "pending, active, inactive",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/field.Status"
+                        }
+                    ]
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "urgent , common ,system, government",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/field.NoticeType"
+                        }
+                    ]
+                },
+                "updatedAt": {
+                    "type": "string"
                 }
             }
         }

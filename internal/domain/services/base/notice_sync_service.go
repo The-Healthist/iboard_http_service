@@ -698,6 +698,14 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		log.Warn("警告: 更新缓存通知数量失败 | 建筑ID: %d | 错误: %v", buildingID, err)
 	}
 
+	// 同步设备轮播列表
+	if err := s.syncAllDeviceNoticeCarousels(ctx, buildingID, needSyncNotices, changeNotices); err != nil {
+		log.Warn("警告: 设备轮播同步失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+	} else {
+		log.Info("设备轮播同步完成 | 建筑ID: %d | 新增: %d | 删除: %d",
+			buildingID, len(needSyncNotices), len(changeNotices))
+	}
+
 	return gin.H{
 		"message":           "Sync completed",
 		"successCount":      successCount,
@@ -821,6 +829,142 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 	return nil
 }
 
+// 添加设备轮播同步相关方法
+
+// syncDeviceNoticeCarousel 同步设备通知轮播列表
+func (s *NoticeSyncService) syncDeviceNoticeCarousel(ctx context.Context, buildingID uint, noticeMD5 string, noticeID uint, action string) error {
+	// 获取绑定到该建筑物的所有设备
+	var devices []base_models.Device
+	if err := s.db.Where("building_id = ?", buildingID).Find(&devices).Error; err != nil {
+		return fmt.Errorf("failed to get building devices: %v", err)
+	}
+
+	log.Info("开始同步设备轮播列表 | 建筑ID: %d | 通知MD5: %s | 操作: %s | 设备数量: %d",
+		buildingID, noticeMD5, action, len(devices))
+
+	for _, device := range devices {
+		if err := s.updateDeviceNoticeCarousel(ctx, device.ID, noticeMD5, noticeID, action); err != nil {
+			log.Warn("设备轮播同步失败 | 设备ID: %d | 建筑ID: %d | 错误: %v",
+				device.ID, buildingID, err)
+			continue
+		}
+		log.Debug("设备轮播同步成功 | 设备ID: %d | 建筑ID: %d | 操作: %s",
+			device.ID, buildingID, action)
+	}
+
+	return nil
+}
+
+// updateDeviceNoticeCarousel 更新单个设备的通知轮播列表
+func (s *NoticeSyncService) updateDeviceNoticeCarousel(ctx context.Context, deviceID uint, noticeMD5 string, noticeID uint, action string) error {
+	// 获取设备的当前轮播列表
+	var device base_models.Device
+	if err := s.db.Select("notice_carousel_list").First(&device, deviceID).Error; err != nil {
+		return fmt.Errorf("failed to get device: %v", err)
+	}
+
+	// 解析当前的轮播列表
+	var currentList []uint
+	if device.NoticeCarouselList != nil {
+		if err := json.Unmarshal(device.NoticeCarouselList, &currentList); err != nil {
+			log.Warn("解析设备轮播列表失败 | 设备ID: %d | 错误: %v", deviceID, err)
+			currentList = []uint{}
+		}
+	}
+
+	var newList []uint
+	switch action {
+	case "add":
+		// 检查通知是否已在列表中
+		exists := false
+		for _, id := range currentList {
+			if id == noticeID {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			// 添加到列表末尾
+			newList = append(currentList, noticeID)
+			log.Debug("添加通知到设备轮播 | 设备ID: %d | 通知ID: %d", deviceID, noticeID)
+		} else {
+			// 已存在，无需更新
+			return nil
+		}
+
+	case "remove":
+		// 从列表中移除通知
+		for _, id := range currentList {
+			if id != noticeID {
+				newList = append(newList, id)
+			}
+		}
+		log.Debug("从设备轮播移除通知 | 设备ID: %d | 通知ID: %d", deviceID, noticeID)
+
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+
+	// 更新设备的轮播列表
+	jsonData, err := json.Marshal(newList)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notice carousel list: %v", err)
+	}
+
+	if err := s.db.Model(&base_models.Device{}).
+		Where("id = ?", deviceID).
+		Update("notice_carousel_list", jsonData).Error; err != nil {
+		return fmt.Errorf("failed to update device notice carousel: %v", err)
+	}
+
+	return nil
+}
+
+// syncAllDeviceNoticeCarousels 同步所有设备的通知轮播列表
+func (s *NoticeSyncService) syncAllDeviceNoticeCarousels(ctx context.Context, buildingID uint, addedNotices []int, removedNotices []int) error {
+	log.Info("开始同步所有设备轮播列表 | 建筑ID: %d | 新增: %d | 删除: %d",
+		buildingID, len(addedNotices), len(removedNotices))
+
+	// 处理新增的通知
+	for _, noticeID := range addedNotices {
+		// 获取通知的MD5值
+		var notice base_models.Notice
+		if err := s.db.Preload("File").First(&notice, noticeID).Error; err != nil {
+			log.Warn("获取通知信息失败 | 通知ID: %d | 错误: %v", noticeID, err)
+			continue
+		}
+
+		if notice.File != nil {
+			noticeMD5 := notice.File.Md5
+			if err := s.syncDeviceNoticeCarousel(ctx, buildingID, noticeMD5, uint(noticeID), "add"); err != nil {
+				log.Warn("同步设备轮播失败(新增) | 建筑ID: %d | 通知ID: %d | 错误: %v",
+					buildingID, noticeID, err)
+			}
+		}
+	}
+
+	// 处理删除的通知
+	for _, noticeID := range removedNotices {
+		// 获取通知的MD5值
+		var notice base_models.Notice
+		if err := s.db.Preload("File").First(&notice, noticeID).Error; err != nil {
+			log.Warn("获取通知信息失败 | 通知ID: %d | 错误: %v", noticeID, err)
+			continue
+		}
+
+		if notice.File != nil {
+			noticeMD5 := notice.File.Md5
+			if err := s.syncDeviceNoticeCarousel(ctx, buildingID, noticeMD5, uint(noticeID), "remove"); err != nil {
+				log.Warn("同步设备轮播失败(删除) | 建筑ID: %d | 通知ID: %d | 错误: %v",
+					buildingID, noticeID, err)
+			}
+		}
+	}
+
+	log.Info("设备轮播同步完成 | 建筑ID: %d", buildingID)
+	return nil
+}
+
 // 修改clearAllCaches函数，添加对同步MD5缓存的清除
 func (s *NoticeSyncService) clearAllCaches(ctx context.Context) error {
 	// 获取所有建筑物
@@ -860,29 +1004,70 @@ func (s *NoticeSyncService) clearAllCaches(ctx context.Context) error {
 	return nil
 }
 
-// 修改ManualSyncBuildingNotices函数
-func (s *NoticeSyncService) ManualSyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
-	// 这里直接调用SyncBuildingNotices，但先清除缓存以强制同步
-	ctx := context.Background()
-
-	// 清除缓存
+// clearBuildingCaches 清除指定建筑物的所有缓存
+func (s *NoticeSyncService) clearBuildingCaches(ctx context.Context, buildingID uint) error {
+	// 清除通知ID缓存
 	idKey := fmt.Sprintf("building_notice_ids:%d", buildingID)
 	if err := s.redis.Del(ctx, idKey).Err(); err != nil {
-		return nil, fmt.Errorf("failed to clear notice IDs cache: %v", err)
+		return fmt.Errorf("failed to clear notice IDs cache: %v", err)
 	}
 
+	// 清除通知数量缓存
 	countKey := fmt.Sprintf("building_ismart_notice_count:%d", buildingID)
 	if err := s.redis.Del(ctx, countKey).Err(); err != nil {
-		return nil, fmt.Errorf("failed to clear notice count cache: %v", err)
+		return fmt.Errorf("failed to clear notice count cache: %v", err)
 	}
 
+	// 清除同步的MD5缓存
 	syncedMD5Key := fmt.Sprintf("%s:%d", syncedNoticeMD5Prefix, buildingID)
 	if err := s.redis.Del(ctx, syncedMD5Key).Err(); err != nil {
-		return nil, fmt.Errorf("failed to clear synced notice MD5s cache: %v", err)
+		return fmt.Errorf("failed to clear synced notice MD5s cache: %v", err)
 	}
 
-	// 调用同步函数
-	return s.SyncBuildingNotices(buildingID, claims)
+	// 清除同步的通知信息缓存
+	syncedInfoKey := fmt.Sprintf("%s:%d", syncedNoticeIDsPrefix, buildingID)
+	if err := s.redis.Del(ctx, syncedInfoKey).Err(); err != nil {
+		return fmt.Errorf("failed to clear synced notice infos cache: %v", err)
+	}
+
+	// 清除建筑物信息缓存
+	buildingKey := fmt.Sprintf("building:%d", buildingID)
+	if err := s.redis.Del(ctx, buildingKey).Err(); err != nil {
+		return fmt.Errorf("failed to clear building cache: %v", err)
+	}
+
+	log.Info("建筑物缓存清除完成 | 建筑ID: %d", buildingID)
+	return nil
+}
+
+// 修改ManualSyncBuildingNotices函数
+func (s *NoticeSyncService) ManualSyncBuildingNotices(buildingID uint, claims jwt.MapClaims) (gin.H, error) {
+	ctx := context.Background()
+	log.Info("开始手动同步建筑物通知 | 建筑ID: %d", buildingID)
+
+	// 清除该建筑物的所有缓存
+	if err := s.clearBuildingCaches(ctx, buildingID); err != nil {
+		log.Warn("警告: 清除建筑物缓存失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+	}
+
+	// 执行同步
+	result, err := s.SyncBuildingNotices(buildingID, claims)
+	if err != nil {
+		return nil, fmt.Errorf("手动同步失败: %v", err)
+	}
+
+	// 手动同步完成后，强制更新所有设备的轮播列表
+	needSyncNotices := result["need_sync_notices"].([]int)
+	changeNotices := result["change_notices"].([]int)
+
+	if err := s.syncAllDeviceNoticeCarousels(ctx, buildingID, needSyncNotices, changeNotices); err != nil {
+		log.Warn("警告: 手动同步后设备轮播更新失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+	} else {
+		log.Info("手动同步后设备轮播更新完成 | 建筑ID: %d", buildingID)
+	}
+
+	log.Info("手动同步完成 | 建筑ID: %d", buildingID)
+	return result, nil
 }
 
 // 10. StartSyncScheduler
@@ -1010,16 +1195,24 @@ func (s *NoticeSyncService) runSync(adminClaims jwt.MapClaims) {
 			res.result["hasSyncedCount"], len(res.result["failedNotices"].([]string)),
 			res.result["deleteCount"])
 
-		// Only show detailed IDs if there are changes
+		// 同步设备轮播列表
 		needSync := res.result["need_sync_notices"].([]int)
-		hasSync := res.result["has_sync_notices"].([]int)
 		changes := res.result["change_notices"].([]int)
 
+		if len(needSync) > 0 || len(changes) > 0 {
+			ctx := context.Background()
+			if err := s.syncAllDeviceNoticeCarousels(ctx, res.buildingID, needSync, changes); err != nil {
+				log.Warn("定时同步后设备轮播更新失败 | 建筑ID: %d | 名称: %s | 错误: %v",
+					res.buildingID, res.name, err)
+			} else {
+				log.Info("定时同步后设备轮播更新完成 | 建筑ID: %d | 名称: %s | 新增: %d | 删除: %d",
+					res.buildingID, res.name, len(needSync), len(changes))
+			}
+		}
+
+		// Only show detailed IDs if there are changes
 		if len(needSync) > 0 {
 			log.Debug("需要同步的通知IDs | 建筑ID: %d | IDs: %v", res.buildingID, needSync)
-		}
-		if len(hasSync) > 0 {
-			log.Debug("已同步的通知IDs | 建筑ID: %d | IDs: %v", res.buildingID, hasSync)
 		}
 		if len(changes) > 0 {
 			log.Debug("变更的通知IDs | 建筑ID: %d | IDs: %v", res.buildingID, changes)

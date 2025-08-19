@@ -2,7 +2,7 @@
 FROM golang:1.23.0-alpine AS build-stage
 
 # 添加版本号作为构建参数
-ARG VERSION=1.0.0
+ARG VERSION=1.1.3
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://goproxy.cn,direct
@@ -10,8 +10,8 @@ ENV GOPROXY=https://goproxy.cn,direct
 WORKDIR /app
 COPY .  /app
 
-# 构建时添加版本号标签
-RUN go build -o main .
+# 构建时指定代码目录，生成 main 可执行文件
+RUN go build -o main ./cmd/server
 
 # 添加版本标签到镜像元数据
 LABEL version=$VERSION

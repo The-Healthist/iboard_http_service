@@ -1,13 +1,11 @@
 package http_base_controller
 
 import (
-	"fmt"
 	"strconv"
 
-	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
+	models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
 	container "github.com/The-Healthist/iboard_http_service/internal/domain/services/container"
-	relationship_service "github.com/The-Healthist/iboard_http_service/internal/domain/services/relationship"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
@@ -22,6 +20,8 @@ type InterfaceDeviceController interface {
 	Login()
 	GetDeviceAdvertisements()
 	GetDeviceNotices()
+	GetDeviceTopAdvertisements()
+	GetDeviceFullAdvertisements()
 	HealthTest()
 }
 
@@ -85,29 +85,39 @@ func HandleFuncDevice(container *container.ServiceContainer, method string) gin.
 			controller := NewDeviceController(ctx, container)
 			controller.GetDeviceNotices()
 		}
+	case "getDeviceTopAdvertisements":
+		return func(ctx *gin.Context) {
+			controller := NewDeviceController(ctx, container)
+			controller.GetDeviceTopAdvertisements()
+		}
+	case "getDeviceFullAdvertisements":
+		return func(ctx *gin.Context) {
+			controller := NewDeviceController(ctx, container)
+			controller.GetDeviceFullAdvertisements()
+		}
 	case "healthTest":
 		return func(ctx *gin.Context) {
 			controller := NewDeviceController(ctx, container)
 			controller.HealthTest()
 		}
-    case "getTopAdCarousel":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarousel() }
-    case "updateTopAdCarousel":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateTopAdCarousel() }
-    case "getFullAdCarousel":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetFullAdCarousel() }
-    case "updateFullAdCarousel":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateFullAdCarousel() }
-    case "getNoticeCarousel":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetNoticeCarousel() }
-    case "updateNoticeCarousel":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateNoticeCarousel() }
-    case "getTopAdCarouselResolved":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarouselResolved() }
-    case "getFullAdCarouselResolved":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetFullAdCarouselResolved() }
-    case "getNoticeCarouselResolved":
-        return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetNoticeCarouselResolved() }
+	case "getTopAdCarousel":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarousel() }
+	case "updateTopAdCarousel":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateTopAdCarousel() }
+	case "getFullAdCarousel":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetFullAdCarousel() }
+	case "updateFullAdCarousel":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateFullAdCarousel() }
+	case "getNoticeCarousel":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetNoticeCarousel() }
+	case "updateNoticeCarousel":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).UpdateNoticeCarousel() }
+	case "getTopAdCarouselResolved":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarouselResolved() }
+	case "getFullAdCarouselResolved":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetFullAdCarouselResolved() }
+	case "getNoticeCarouselResolved":
+		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetNoticeCarouselResolved() }
 	default:
 		return func(ctx *gin.Context) {
 			ctx.JSON(400, gin.H{"error": "invalid method"})
@@ -115,32 +125,35 @@ func HandleFuncDevice(container *container.ServiceContainer, method string) gin.
 	}
 }
 
-// 1.Create 创建设备
-// @Summary      创建设备
-// @Description  创建一个新的设备
+// Create 创建设备
+// @Summary      1. 创建设备
+// @Description  创建一个新的显示设备，包含设备基本信息和设置参数
 // @Tags         Device
 // @Accept       json
 // @Produce      json
-// @Param        device body object true "设备信息"
 // @Param        deviceId formData string true "设备ID" example:"DEV1001"
-// @Param        buildingId formData uint true "建筑ID" example:"1"
-// @Param        settings formData object false "设备设置"
-// @Param        settings.arrearageUpdateDuration formData int false "欠费更新间隔(秒)" example:"3600"
-// @Param        settings.noticeUpdateDuration formData int false "通知更新间隔(秒)" example:"1800"
-// @Param        settings.advertisementUpdateDuration formData int false "广告更新间隔(秒)" example:"3600"
+// @Param        buildingId formData int true "建筑ID" example:"1"
+// @Param        settings.arrearageUpdateDuration formData int false "欠款更新间隔(分钟)" example:"5"
+// @Param        settings.noticeUpdateDuration formData int false "通知更新间隔(分钟)" example:"10"
+// @Param        settings.advertisementUpdateDuration formData int false "广告更新间隔(分钟)" example:"15"
+// @Param        settings.appUpdateDuration formData int false "应用更新间隔(秒)" example:"600"
 // @Param        settings.advertisementPlayDuration formData int false "广告播放时长(秒)" example:"30"
 // @Param        settings.noticePlayDuration formData int false "通知播放时长(秒)" example:"20"
 // @Param        settings.spareDuration formData int false "空闲时长(秒)" example:"10"
 // @Param        settings.noticeStayDuration formData int false "通知停留时长(秒)" example:"5"
+// @Param        settings.bottomCarouselDuration formData int false "底部轮播切换时间(秒)" example:"10"
+// @Param        settings.paymentTableOnePageDuration formData int false "缴费表格单页停留时间(秒)" example:"5"
+// @Param        settings.normalToAnnouncementCarouselDuration formData int false "正常播放到公告轮播时间(秒)" example:"10"
+// @Param        settings.announcementCarouselToFullAdsCarouselDuration formData int false "公告轮播到全屏广告轮播时间(秒)" example:"10"
 // @Success      200  {object}  map[string]interface{} "返回创建的设备信息"
 // @Failure      400  {object}  map[string]interface{} "错误信息"
 // @Router       /admin/device [post]
 // @Security     BearerAuth
 func (c *DeviceController) Create() {
 	var form struct {
-		DeviceID   string                     `json:"deviceId" binding:"required" example:"DEV1001"`
-		BuildingID uint                       `json:"buildingId" binding:"required" example:"1"`
-		Settings   base_models.DeviceSettings `json:"settings"`
+		DeviceID   string                `json:"deviceId" binding:"required" example:"DEV1001"`
+		BuildingID uint                  `json:"buildingId" binding:"required" example:"1"`
+		Settings   models.DeviceSettings `json:"settings"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -151,7 +164,7 @@ func (c *DeviceController) Create() {
 		return
 	}
 
-	device := &base_models.Device{
+	device := &models.Device{
 		DeviceID:   form.DeviceID,
 		BuildingID: form.BuildingID,
 		Settings:   form.Settings,
@@ -172,8 +185,8 @@ func (c *DeviceController) Create() {
 }
 
 // 2.Get 获取设备列表
-// @Summary      获取设备列表
-// @Description  根据查询条件获取设备列表，包含设备状态
+// @Summary      2. 获取设备列表
+// @Description  根据查询条件获取设备列表，包含设备状态和分页信息
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -228,34 +241,37 @@ func (c *DeviceController) Get() {
 	})
 }
 
-// 3.Update 更新设备
-// @Summary      更新设备
-// @Description  更新设备信息，包括设备ID、所属建筑和设置
+// Update 更新设备
+// @Summary      3. 更新设备
+// @Description  更新设备信息，包括设备ID、所属建筑和设置参数
 // @Tags         Device
 // @Accept       json
 // @Produce      json
-// @Param        device body object true "设备更新信息"
-// @Param        id formData uint true "设备ID" example:"1"
+// @Param        id formData int true "设备ID" example:"1"
 // @Param        deviceId formData string false "设备ID" example:"DEV1001-UPDATED"
-// @Param        buildingId formData uint false "建筑ID" example:"2"
-// @Param        settings formData object false "设备设置"
-// @Param        settings.arrearageUpdateDuration formData int false "欠费更新间隔(秒)" example:"7200"
-// @Param        settings.noticeUpdateDuration formData int false "通知更新间隔(秒)" example:"3600"
-// @Param        settings.advertisementUpdateDuration formData int false "广告更新间隔(秒)" example:"7200"
-// @Param        settings.advertisementPlayDuration formData int false "广告播放时长(秒)" example:"45"
-// @Param        settings.noticePlayDuration formData int false "通知播放时长(秒)" example:"30"
-// @Param        settings.spareDuration formData int false "空闲时长(秒)" example:"15"
-// @Param        settings.noticeStayDuration formData int false "通知停留时长(秒)" example:"10"
-// @Success      200  {object}  map[string]interface{} "返回更新后的设备信息，包含状态"
+// @Param        buildingId formData int false "建筑ID" example:"2"
+// @Param        settings.arrearageUpdateDuration formData int false "欠款更新间隔(分钟)" example:"5"
+// @Param        settings.noticeUpdateDuration formData int false "通知更新间隔(分钟)" example:"10"
+// @Param        settings.advertisementUpdateDuration formData int false "广告更新间隔(分钟)" example:"15"
+// @Param        settings.appUpdateDuration formData int false "应用更新间隔(秒)" example:"600"
+// @Param        settings.advertisementPlayDuration formData int false "广告播放时长(秒)" example:"30"
+// @Param        settings.noticePlayDuration formData int false "通知播放时长(秒)" example:"20"
+// @Param        settings.spareDuration formData int false "空闲时长(秒)" example:"10"
+// @Param        settings.noticeStayDuration formData int false "通知停留时长(秒)" example:"5"
+// @Param        settings.bottomCarouselDuration formData int false "底部轮播切换时间(秒)" example:"10"
+// @Param        settings.paymentTableOnePageDuration formData int false "缴费表格单页停留时间(秒)" example:"5"
+// @Param        settings.normalToAnnouncementCarouselDuration formData int false "正常播放到公告轮播时间(秒)" example:"10"
+// @Param        settings.announcementCarouselToFullAdsCarouselDuration formData int false "公告轮播到全屏广告轮播时间(秒)" example:"10"
+// @Success      200  {object}  map[string]interface{} "返回更新后的设备信息"
 // @Failure      400  {object}  map[string]interface{} "错误信息"
 // @Router       /admin/device [put]
 // @Security     BearerAuth
 func (c *DeviceController) Update() {
 	var form struct {
-		ID         uint                        `json:"id" binding:"required" example:"1"`
-		DeviceID   string                      `json:"deviceId" example:"DEV1001-UPDATED"`
-		BuildingID uint                        `json:"buildingId" example:"2"`
-		Settings   *base_models.DeviceSettings `json:"settings"`
+		ID         uint                   `json:"id" binding:"required" example:"1"`
+		DeviceID   string                 `json:"deviceId" example:"DEV1001-UPDATED"`
+		BuildingID uint                   `json:"buildingId" example:"2"`
+		Settings   *models.DeviceSettings `json:"settings"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -263,23 +279,13 @@ func (c *DeviceController) Update() {
 		return
 	}
 
-	// 如果需要更新 buildingId，先处理绑定关系
-	if form.BuildingID != 0 {
-		// 先解绑
-		if err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).UnbindDevice(form.ID); err != nil {
-			c.Ctx.JSON(400, gin.H{"error": fmt.Sprintf("failed to unbind device: %v", err)})
-			return
-		}
-
-		// 再绑定到新建筑物
-		if err := c.Container.GetService("deviceBuilding").(relationship_service.InterfaceDeviceBuildingService).BindDevices(form.BuildingID, []uint{form.ID}); err != nil {
-			c.Ctx.JSON(400, gin.H{"error": fmt.Sprintf("failed to bind device: %v", err)})
-			return
-		}
-	}
-
-	// 更新其他字段
+	// 创建更新映射
 	updates := map[string]interface{}{}
+
+	// 如果需要更新 buildingId，将其添加到更新映射中，让 device 服务处理
+	if form.BuildingID != 0 {
+		updates["buildingId"] = form.BuildingID
+	}
 	if form.DeviceID != "" {
 		updates["device_id"] = form.DeviceID
 	}
@@ -287,10 +293,15 @@ func (c *DeviceController) Update() {
 		updates["arrearage_update_duration"] = form.Settings.ArrearageUpdateDuration
 		updates["notice_update_duration"] = form.Settings.NoticeUpdateDuration
 		updates["advertisement_update_duration"] = form.Settings.AdvertisementUpdateDuration
+		updates["app_update_duration"] = form.Settings.AppUpdateDuration
 		updates["advertisement_play_duration"] = form.Settings.AdvertisementPlayDuration
 		updates["notice_play_duration"] = form.Settings.NoticePlayDuration
 		updates["spare_duration"] = form.Settings.SpareDuration
 		updates["notice_stay_duration"] = form.Settings.NoticeStayDuration
+		updates["bottom_carousel_duration"] = form.Settings.BottomCarouselDuration
+		updates["payment_table_one_page_duration"] = form.Settings.PaymentTableOnePageDuration
+		updates["normal_to_announcement_carousel_duration"] = form.Settings.NormalToAnnouncementCarouselDuration
+		updates["announcement_carousel_to_full_ads_carousel_duration"] = form.Settings.AnnouncementCarouselToFullAdsCarouselDuration
 	}
 
 	updatedDevice, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).Update(form.ID, updates)
@@ -312,8 +323,8 @@ func (c *DeviceController) Update() {
 }
 
 // 4.Delete 删除设备
-// @Summary      删除设备
-// @Description  删除一个或多个设备
+// @Summary      4. 删除设备
+// @Description  删除一个或多个设备，支持批量删除操作
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -341,8 +352,8 @@ func (c *DeviceController) Delete() {
 }
 
 // 5.GetOne 获取单个设备
-// @Summary      获取单个设备
-// @Description  根据ID获取设备详细信息
+// @Summary      5. 获取单个设备
+// @Description  根据ID获取设备详细信息，包含设备状态信息
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -373,8 +384,8 @@ func (c *DeviceController) GetOne() {
 }
 
 // 6.CreateMany 批量创建设备
-// @Summary      批量创建设备
-// @Description  批量创建多个设备
+// @Summary      6. 批量创建设备
+// @Description  批量创建多个设备，支持一次性创建多个设备配置
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -387,9 +398,9 @@ func (c *DeviceController) GetOne() {
 func (c *DeviceController) CreateMany() {
 	var form struct {
 		Devices []struct {
-			DeviceID   string                     `json:"deviceId" binding:"required" example:"DEV1001"`
-			BuildingID uint                       `json:"buildingId" binding:"required" example:"1"`
-			Settings   base_models.DeviceSettings `json:"settings"`
+			DeviceID   string                `json:"deviceId" binding:"required" example:"DEV1001"`
+			BuildingID uint                  `json:"buildingId" binding:"required" example:"1"`
+			Settings   models.DeviceSettings `json:"settings"`
 		} `json:"devices" binding:"required,dive"`
 	}
 
@@ -401,9 +412,9 @@ func (c *DeviceController) CreateMany() {
 		return
 	}
 
-	devices := make([]*base_models.Device, len(form.Devices))
+	devices := make([]*models.Device, len(form.Devices))
 	for i, d := range form.Devices {
-		devices[i] = &base_models.Device{
+		devices[i] = &models.Device{
 			DeviceID:   d.DeviceID,
 			BuildingID: d.BuildingID,
 			Settings:   d.Settings,
@@ -425,8 +436,8 @@ func (c *DeviceController) CreateMany() {
 }
 
 // 7.Login 设备登录
-// @Summary      设备登录
-// @Description  设备登录获取JWT令牌
+// @Summary      7. 设备登录
+// @Description  设备登录获取JWT令牌，用于后续接口认证
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -478,8 +489,8 @@ func (c *DeviceController) Login() {
 }
 
 // 8.GetDeviceAdvertisements 获取设备广告
-// @Summary      获取设备广告
-// @Description  根据设备ID获取分配给该设备的广告
+// @Summary      8. 获取设备广告
+// @Description  根据设备ID获取分配给该设备的广告列表
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -523,8 +534,8 @@ func (c *DeviceController) GetDeviceAdvertisements() {
 }
 
 // 9.GetDeviceNotices 获取设备通知
-// @Summary      获取设备通知
-// @Description  根据设备ID获取分配给该设备的通知
+// @Summary      9. 获取设备通知
+// @Description  根据设备ID获取分配给该设备的通知列表
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -567,9 +578,61 @@ func (c *DeviceController) GetDeviceNotices() {
 	})
 }
 
+// GetDeviceTopAdvertisements 获取设备顶部广告列表（包括top和topfull）
+func (c *DeviceController) GetDeviceTopAdvertisements() {
+	// Authenticate and extract deviceId
+	claims, exists := c.Ctx.Get("claims")
+	if !exists {
+		c.Ctx.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+	claimsMap, ok := claims.(map[string]interface{})
+	if !ok {
+		c.Ctx.JSON(500, gin.H{"error": "Invalid claims format"})
+		return
+	}
+	deviceId, ok := claimsMap["deviceId"].(string)
+	if !ok {
+		c.Ctx.JSON(500, gin.H{"error": "Invalid device ID format"})
+		return
+	}
+	ads, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetDeviceTopAdvertisements(deviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error(), "message": "Failed to get top advertisements"})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"message": "Get top advertisements success", "data": ads})
+}
+
+// GetDeviceFullAdvertisements 获取设备全屏广告列表（包括full和topfull）
+func (c *DeviceController) GetDeviceFullAdvertisements() {
+	// Authenticate and extract deviceId
+	claims, exists := c.Ctx.Get("claims")
+	if !exists {
+		c.Ctx.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+	claimsMap, ok := claims.(map[string]interface{})
+	if !ok {
+		c.Ctx.JSON(500, gin.H{"error": "Invalid claims format"})
+		return
+	}
+	deviceId, ok := claimsMap["deviceId"].(string)
+	if !ok {
+		c.Ctx.JSON(500, gin.H{"error": "Invalid device ID format"})
+		return
+	}
+	ads, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetDeviceFullAdvertisements(deviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error(), "message": "Failed to get full advertisements"})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"message": "Get full advertisements success", "data": ads})
+}
+
 // 10.HealthTest 设备健康测试
-// @Summary      设备健康测试
-// @Description  设备上报健康状态，用于检测设备是否在线
+// @Summary      10. 设备健康测试
+// @Description  设备上报健康状态，用于检测设备是否在线，更新设备最后活跃时间
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -618,113 +681,424 @@ func (c *DeviceController) HealthTest() {
 	})
 }
 
-// 8.GetTopAdCarousel 获取顶部广告轮播顺序
+// 11.GetTopAdCarousel 获取顶部广告轮播顺序
+// @Summary      11. 获取顶部广告轮播顺序
+// @Description  根据设备ID获取顶部广告轮播的排序ID列表
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Success      200  {object}  map[string]interface{} "返回顶部广告轮播ID列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/top_advertisements [get]
+// @Security     JWT
 func (c *DeviceController) GetTopAdCarousel() {
-    var form struct{ ID uint `form:"id" binding:"required"` }
-    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarousel(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": ids})
+	var form struct {
+		DeviceID string `json:"deviceId" binding:"required"`
+	}
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 根据设备ID字符串查找设备
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(form.DeviceID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarousel(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"data": ids})
 }
 
-// 9.UpdateTopAdCarousel 更新顶部广告轮播顺序（全量替换）
+// 12.UpdateTopAdCarousel 更新顶部广告轮播顺序（全量替换）
+// @Summary      12. 更新顶部广告轮播顺序
+// @Description  更新设备顶部广告轮播顺序，支持全量替换现有顺序
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Param        data body []models.Advertisement true "广告数据数组"
+// @Success      200  {object}  map[string]interface{} "返回更新后的完整广告列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/top_advertisements [put]
+// @Security     JWT
 func (c *DeviceController) UpdateTopAdCarousel() {
-    var form struct{ ID uint `json:"id" binding:"required"`; Data []models.Advertisement `json:"data" binding:"required"` }
-    if err := c.Ctx.ShouldBindJSON(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    
-    // 提取 ID 列表
-    var ids []uint
-    for _, ad := range form.Data {
-        ids = append(ids, ad.ID)
-    }
-    
-    if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateTopAdCarousel(form.ID, ids); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    
-    // 返回更新后的完整列表
-    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarouselResolved(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+	var form struct {
+		DeviceId string                 `json:"deviceId" binding:"required"`
+		Data     []models.Advertisement `json:"data" binding:"required"`
+	}
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 根据设备ID字符串查找设备
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(form.DeviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 提取 ID 列表
+	var ids []uint
+	for _, ad := range form.Data {
+		ids = append(ids, ad.ID)
+	}
+
+	if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateTopAdCarousel(device.ID, ids); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 返回更新后的完整列表
+	list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarouselResolved(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"data": list, "message": "Update top advertisements success"})
 }
 
-// 10.GetFullAdCarousel 获取全屏广告轮播顺序
+// 13.GetFullAdCarousel 获取全屏广告轮播顺序
+// @Summary      13. 获取全屏广告轮播顺序
+// @Description  根据设备ID获取全屏广告轮播的排序ID列表
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Success      200  {object}  map[string]interface{} "返回全屏广告轮播ID列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/full_advertisements [get]
+// @Security     JWT
 func (c *DeviceController) GetFullAdCarousel() {
-    var form struct{ ID uint `form:"id" binding:"required"` }
-    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarousel(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": ids})
+	var form struct {
+		DeviceID string `json:"deviceId" binding:"required"`
+	}
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 根据设备ID字符串查找设备
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(form.DeviceID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarousel(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"data": ids})
 }
 
-// 11.UpdateFullAdCarousel 更新全屏广告轮播顺序（全量替换）
+// 14.UpdateFullAdCarousel 更新全屏广告轮播顺序（全量替换）
+// @Summary      14. 更新全屏广告轮播顺序
+// @Description  更新设备全屏广告轮播顺序，支持全量替换现有顺序
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Param        data body []models.Advertisement true "广告数据数组"
+// @Success      200  {object}  map[string]interface{} "返回更新后的完整广告列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/full_advertisements [put]
+// @Security     JWT
 func (c *DeviceController) UpdateFullAdCarousel() {
-    var form struct{ ID uint `json:"id" binding:"required"`; Data []models.Advertisement `json:"data" binding:"required"` }
-    if err := c.Ctx.ShouldBindJSON(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    
-    // 提取 ID 列表
-    var ids []uint
-    for _, ad := range form.Data {
-        ids = append(ids, ad.ID)
-    }
-    
-    if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateFullAdCarousel(form.ID, ids); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    
-    // 返回更新后的完整列表
-    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarouselResolved(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+	var form struct {
+		DeviceId string                 `json:"deviceId" binding:"required"`
+		Data     []models.Advertisement `json:"data" binding:"required"`
+	}
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 根据设备ID字符串查找设备
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(form.DeviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 提取 ID 列表
+	var ids []uint
+	for _, ad := range form.Data {
+		ids = append(ids, ad.ID)
+	}
+
+	if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateFullAdCarousel(device.ID, ids); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 返回更新后的完整列表
+	list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarouselResolved(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"data": list, "message": "Update full advertisements success"})
 }
 
-// 12.GetNoticeCarousel 获取公告轮播顺序
+// 15.GetNoticeCarousel 获取公告轮播顺序
+// @Summary      15. 获取公告轮播顺序
+// @Description  根据设备ID获取公告轮播的排序ID列表
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Success      200  {object}  map[string]interface{} "返回公告轮播ID列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/notices [get]
+// @Security     JWT
 func (c *DeviceController) GetNoticeCarousel() {
-    var form struct{ ID uint `form:"id" binding:"required"` }
-    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarousel(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": ids})
+	var form struct {
+		DeviceID string `json:"deviceId" binding:"required"`
+	}
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 根据设备ID字符串查找设备
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(form.DeviceID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	ids, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarousel(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"data": ids})
 }
 
-// 13.UpdateNoticeCarousel 更新公告轮播顺序（全量替换）
+// 16.UpdateNoticeCarousel 更新公告轮播顺序（全量替换）
+// @Summary      16. 更新公告轮播顺序
+// @Description  更新设备公告轮播顺序，支持全量替换现有顺序
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Param        data body []models.Notice true "公告数据数组"
+// @Success      200  {object}  map[string]interface{} "返回更新后的完整公告列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/notices [put]
+// @Security     JWT
 func (c *DeviceController) UpdateNoticeCarousel() {
-    var form struct{ ID uint `json:"id" binding:"required"`; Data []models.Notice `json:"data" binding:"required"` }
-    if err := c.Ctx.ShouldBindJSON(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    
-    // 提取 ID 列表
-    var ids []uint
-    for _, notice := range form.Data {
-        ids = append(ids, notice.ID)
-    }
-    
-    if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateNoticeCarousel(form.ID, ids); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    
-    // 返回更新后的完整列表
-    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarouselResolved(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get notices success"})
+	var form struct {
+		DeviceId string          `json:"deviceId" binding:"required"`
+		Data     []models.Notice `json:"data" binding:"required"`
+	}
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 根据设备ID字符串查找设备
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(form.DeviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 提取 ID 列表
+	var ids []uint
+	for _, notice := range form.Data {
+		ids = append(ids, notice.ID)
+	}
+
+	if err := c.Container.GetService("device").(base_services.InterfaceDeviceService).UpdateNoticeCarousel(device.ID, ids); err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 返回更新后的完整列表
+	list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarouselResolved(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	c.Ctx.JSON(200, gin.H{"data": list, "message": "Update notices success"})
 }
 
-// 14.GetTopAdCarouselResolved 获取顶部广告详细列表
+// 17.GetTopAdCarouselResolved 获取顶部广告详细列表 (管理员根据deviceID获取)
+// @Summary      17. 获取顶部广告详细列表
+// @Description  管理员根据设备ID获取顶部广告轮播的完整详细信息列表
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Success      200  {object}  map[string]interface{} "返回顶部广告完整信息列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/top_advertisements [post]
+// @Security     JWT
 func (c *DeviceController) GetTopAdCarouselResolved() {
-    var form struct{ ID uint `form:"id" binding:"required"` }
-    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarouselResolved(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+	// Determine deviceId: GET from token claims, POST from JSON body
+	var deviceIdStr string
+	if c.Ctx.Request.Method == "GET" {
+		claimsVal, exists := c.Ctx.Get("claims")
+		if !exists {
+			c.Ctx.JSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		claimsMap, okClaims := claimsVal.(map[string]interface{})
+		if !okClaims {
+			c.Ctx.JSON(500, gin.H{"error": "Invalid claims format"})
+			return
+		}
+		deviceIdTmp, okDevice := claimsMap["deviceId"].(string)
+		if !okDevice {
+			c.Ctx.JSON(500, gin.H{"error": "Invalid device ID format"})
+			return
+		}
+		deviceIdStr = deviceIdTmp
+	} else {
+		var form struct {
+			DeviceId string `json:"deviceId" binding:"required"`
+		}
+		if err := c.Ctx.ShouldBindJSON(&form); err != nil || form.DeviceId == "" {
+			c.Ctx.JSON(400, gin.H{"error": "Device ID is required"})
+			return
+		}
+		deviceIdStr = form.DeviceId
+	}
+	// Fetch device
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(deviceIdStr)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 获取该设备的顶部广告轮播列表（返回完整对象）
+	list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetTopAdCarouselResolved(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{"data": list, "message": "Get top advertisements success"})
 }
 
-// 15.GetFullAdCarouselResolved 获取全屏广告详细列表
+// 18.GetFullAdCarouselResolved 获取全屏广告详细列表 (管理员根据deviceID获取)
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Success      200  {object}  map[string]interface{} "返回全屏广告完整信息列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/full_advertisements [post]
+// @Security     JWT
 func (c *DeviceController) GetFullAdCarouselResolved() {
-    var form struct{ ID uint `form:"id" binding:"required"` }
-    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarouselResolved(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get advertisements success"})
+	// Determine deviceId: GET from token claims, POST from JSON
+	var deviceIdStr string
+	if c.Ctx.Request.Method == "GET" {
+		claimsVal, exists := c.Ctx.Get("claims")
+		if !exists {
+			c.Ctx.JSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		claimsMap, ok := claimsVal.(map[string]interface{})
+		if !ok {
+			c.Ctx.JSON(500, gin.H{"error": "Invalid claims format"})
+			return
+		}
+		tmp, ok2 := claimsMap["deviceId"].(string)
+		if !ok2 {
+			c.Ctx.JSON(500, gin.H{"error": "Invalid device ID format"})
+			return
+		}
+		deviceIdStr = tmp
+	} else {
+		var form struct {
+			DeviceId string `json:"deviceId" binding:"required"`
+		}
+		if err := c.Ctx.ShouldBindJSON(&form); err != nil || form.DeviceId == "" {
+			c.Ctx.JSON(400, gin.H{"error": "Device ID is required"})
+			return
+		}
+		deviceIdStr = form.DeviceId
+	}
+	// Fetch device by deviceId
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(deviceIdStr)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 获取该设备的全屏广告轮播列表（返回完整对象）
+	list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetFullAdCarouselResolved(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{"data": list, "message": "Get full advertisements success"})
 }
 
-// 16.GetNoticeCarouselResolved 获取公告详细列表
+// 19.GetNoticeCarouselResolved 获取公告详细列表 (管理员根据deviceID获取)
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        deviceId body string true "设备ID" example:"DEVICE_1DA24A3A"
+// @Success      200  {object}  map[string]interface{} "返回公告完整信息列表"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/carousel/notices [post]
+// @Security     JWT
 func (c *DeviceController) GetNoticeCarouselResolved() {
-    var form struct{ ID uint `form:"id" binding:"required"` }
-    if err := c.Ctx.ShouldBindQuery(&form); err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarouselResolved(form.ID)
-    if err != nil { c.Ctx.JSON(400, gin.H{"error": err.Error()}); return }
-    c.Ctx.JSON(200, gin.H{"data": list, "message": "Get notices success"})
+	// Determine deviceId: GET from token claims for device client, POST JSON for admin
+	var deviceIdStr string
+	if c.Ctx.Request.Method == "GET" {
+		claimsVal, exists := c.Ctx.Get("claims")
+		if !exists {
+			c.Ctx.JSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		claimsMap, ok := claimsVal.(map[string]interface{})
+		if !ok {
+			c.Ctx.JSON(500, gin.H{"error": "Invalid claims format"})
+			return
+		}
+		tmp, ok2 := claimsMap["deviceId"].(string)
+		if !ok2 {
+			c.Ctx.JSON(500, gin.H{"error": "Invalid device ID format"})
+			return
+		}
+		deviceIdStr = tmp
+	} else {
+		var form struct {
+			DeviceId string `json:"deviceId" binding:"required"`
+		}
+		if err := c.Ctx.ShouldBindJSON(&form); err != nil || form.DeviceId == "" {
+			c.Ctx.JSON(400, gin.H{"error": "Device ID is required"})
+			return
+		}
+		deviceIdStr = form.DeviceId
+	}
+	// Fetch device
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(deviceIdStr)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 获取该设备的公告轮播列表（返回完整对象）
+	list, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetNoticeCarouselResolved(device.ID)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{"data": list, "message": "Get notices success"})
 }
