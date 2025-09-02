@@ -95,8 +95,8 @@ func (s *UploadService) GetUploadParams(uploadDir string) (map[string]interface{
 	var callbackBase64 string
 	callbackUrl := os.Getenv("CALLBACK_URL")
 
-	// Only add callback if callback URL is configured and not an APK file
-	if callbackUrl != "" && !strings.HasSuffix(strings.ToLower(uploadDir), ".apk") {
+	// Only add callback if callback URL is configured
+	if callbackUrl != "" {
 		// Create callback with internal URL (skip for APK files)
 		callbackParam := CallbackParam{
 			CallbackUrl:      callbackUrl,

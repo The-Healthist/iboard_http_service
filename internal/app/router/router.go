@@ -2,7 +2,7 @@ package router
 
 import (
 	_ "github.com/The-Healthist/iboard_http_service/docs/docs_swagger" // 导入 swagger 文档
-	http_base_controller "github.com/The-Healthist/iboard_http_service/internal/app/controller/base"
+	http_base_controller "github.com/The-Healthist/iboard_http_service/internal/app/controller/building_admin/base"
 	http_building_admin_controller "github.com/The-Healthist/iboard_http_service/internal/app/controller/building_admin"
 	http_relationship_controller "github.com/The-Healthist/iboard_http_service/internal/app/controller/relationship"
 	middlewares "github.com/The-Healthist/iboard_http_service/internal/app/middleware"

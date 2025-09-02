@@ -7,7 +7,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	base_models "github.com/The-Healthist/iboard_http_service/internal/domain/models"
 	base_services "github.com/The-Healthist/iboard_http_service/internal/domain/services/base"
@@ -104,7 +103,7 @@ func (c *UploadController) GetUploadParams() {
 			}
 		}
 	} else {
-		log.Info("无JWT认证，使用默认超级管理员作为上传者 | %v", requestID)
+
 	}
 
 	// Save uploader info to cache
@@ -129,26 +128,38 @@ func (c *UploadController) GetUploadParams() {
 		return
 	}
 
-	// Generate directory and filename
-	currentTime := time.Now()
-	dir := currentTime.Format("2006-01-02") + "/"
+	// Generate directory and filename based on file type
 	ext := path.Ext(req.FileName)
 	newFileName := uuid.New().String() + ext
+
+	// Determine directory based on file type
+	var dir string
+	switch strings.ToLower(ext) {
+	case ".apk":
+		dir = "iboard/apks/"
+	case ".pdf":
+		dir = "iboard/pdf/"
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg":
+		dir = "iboard/image/"
+	case ".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v":
+		dir = "iboard/video/"
+	case ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma":
+		dir = "iboard/audio/"
+	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt":
+		dir = "iboard/document/"
+	default:
+		dir = "iboard/other/"
+	}
+
 	fullPath := dir + newFileName
 
-	// Get upload policy - use no callback for APK files to avoid timeout
+	// Get upload policy - use callback for all files including APK
 	var policy map[string]interface{}
 	var err error
 
-	if strings.ToLower(path.Ext(req.FileName)) == ".apk" {
-		// Use no callback method for APK files to avoid callback timeout issues
-		policy, err = c.Container.GetService("upload").(base_services.IUploadService).GetUploadParamsNoCallback(fullPath)
-		log.Info("使用无回调上传方式处理APK文件 | %v", requestID)
-	} else {
-		// Use normal callback method for other files
-		policy, err = c.Container.GetService("upload").(base_services.IUploadService).GetUploadParams(fullPath)
-		log.Info("使用回调上传方式处理普通文件 | %v | 文件类型: %s", requestID, path.Ext(req.FileName))
-	}
+	// Use normal callback method for all files (including APK)
+	policy, err = c.Container.GetService("upload").(base_services.IUploadService).GetUploadParams(fullPath)
+	log.Info("使用回调上传方式处理文件 | %v | 文件类型: %s", requestID, path.Ext(req.FileName))
 
 	if err != nil {
 		log.Error("获取上传参数失败 | %v | %v", requestID, err)
@@ -345,7 +356,6 @@ func (c *UploadController) GetUploadParamsSync() {
 			}
 		}
 	} else {
-		log.Info("无JWT认证，使用默认超级管理员作为上传者（同步服务） | %v", requestID)
 	}
 
 	// Save uploader info to cache
@@ -370,11 +380,29 @@ func (c *UploadController) GetUploadParamsSync() {
 		return
 	}
 
-	// Generate directory and filename
-	currentTime := time.Now()
-	dir := currentTime.Format("2006-01-02") + "/"
+	// Generate directory and filename based on file type
 	ext := path.Ext(req.FileName)
 	newFileName := uuid.New().String() + ext
+
+	// Determine directory based on file type
+	var dir string
+	switch strings.ToLower(ext) {
+	case ".apk":
+		dir = "iboard/apks/"
+	case ".pdf":
+		dir = "iboard/pdf/"
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg":
+		dir = "iboard/image/"
+	case ".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v":
+		dir = "iboard/video/"
+	case ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma":
+		dir = "iboard/audio/"
+	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt":
+		dir = "iboard/document/"
+	default:
+		dir = "iboard/other/"
+	}
+
 	fullPath := dir + newFileName
 
 	// Get upload policy

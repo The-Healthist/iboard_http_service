@@ -272,6 +272,7 @@ func (c *DeviceController) Update() {
 		DeviceID   string                 `json:"deviceId" example:"DEV1001-UPDATED"`
 		BuildingID uint                   `json:"buildingId" example:"2"`
 		Settings   *models.DeviceSettings `json:"settings"`
+		Status     string                 `json:"status"` // 忽略status字段，设备状态由服务器自动管理
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -290,18 +291,78 @@ func (c *DeviceController) Update() {
 		updates["device_id"] = form.DeviceID
 	}
 	if form.Settings != nil {
-		updates["arrearage_update_duration"] = form.Settings.ArrearageUpdateDuration
-		updates["notice_update_duration"] = form.Settings.NoticeUpdateDuration
-		updates["advertisement_update_duration"] = form.Settings.AdvertisementUpdateDuration
-		updates["app_update_duration"] = form.Settings.AppUpdateDuration
-		updates["advertisement_play_duration"] = form.Settings.AdvertisementPlayDuration
-		updates["notice_play_duration"] = form.Settings.NoticePlayDuration
-		updates["spare_duration"] = form.Settings.SpareDuration
-		updates["notice_stay_duration"] = form.Settings.NoticeStayDuration
-		updates["bottom_carousel_duration"] = form.Settings.BottomCarouselDuration
-		updates["payment_table_one_page_duration"] = form.Settings.PaymentTableOnePageDuration
-		updates["normal_to_announcement_carousel_duration"] = form.Settings.NormalToAnnouncementCarouselDuration
-		updates["announcement_carousel_to_full_ads_carousel_duration"] = form.Settings.AnnouncementCarouselToFullAdsCarouselDuration
+		// 防止时间设置为0，如果为0则使用默认值
+		if form.Settings.ArrearageUpdateDuration > 0 {
+			updates["arrearage_update_duration"] = form.Settings.ArrearageUpdateDuration
+		} else if form.Settings.ArrearageUpdateDuration == 0 {
+			updates["arrearage_update_duration"] = 5 // 默认值
+		}
+
+		if form.Settings.NoticeUpdateDuration > 0 {
+			updates["notice_update_duration"] = form.Settings.NoticeUpdateDuration
+		} else if form.Settings.NoticeUpdateDuration == 0 {
+			updates["notice_update_duration"] = 10 // 默认值
+		}
+
+		if form.Settings.AdvertisementUpdateDuration > 0 {
+			updates["advertisement_update_duration"] = form.Settings.AdvertisementUpdateDuration
+		} else if form.Settings.AdvertisementUpdateDuration == 0 {
+			updates["advertisement_update_duration"] = 15 // 默认值
+		}
+
+		if form.Settings.AppUpdateDuration > 0 {
+			updates["app_update_duration"] = form.Settings.AppUpdateDuration
+		} else if form.Settings.AppUpdateDuration == 0 {
+			updates["app_update_duration"] = 600 // 默认值
+		}
+
+		if form.Settings.AdvertisementPlayDuration > 0 {
+			updates["advertisement_play_duration"] = form.Settings.AdvertisementPlayDuration
+		} else if form.Settings.AdvertisementPlayDuration == 0 {
+			updates["advertisement_play_duration"] = 30 // 默认值
+		}
+
+		if form.Settings.NoticePlayDuration > 0 {
+			updates["notice_play_duration"] = form.Settings.NoticePlayDuration
+		} else if form.Settings.NoticePlayDuration == 0 {
+			updates["notice_play_duration"] = 30 // 默认值
+		}
+
+		if form.Settings.SpareDuration > 0 {
+			updates["spare_duration"] = form.Settings.SpareDuration
+		} else if form.Settings.SpareDuration == 0 {
+			updates["spare_duration"] = 10 // 默认值
+		}
+
+		if form.Settings.NoticeStayDuration > 0 {
+			updates["notice_stay_duration"] = form.Settings.NoticeStayDuration
+		} else if form.Settings.NoticeStayDuration == 0 {
+			updates["notice_stay_duration"] = 10 // 默认值
+		}
+
+		if form.Settings.BottomCarouselDuration > 0 {
+			updates["bottom_carousel_duration"] = form.Settings.BottomCarouselDuration
+		} else if form.Settings.BottomCarouselDuration == 0 {
+			updates["bottom_carousel_duration"] = 10 // 默认值
+		}
+
+		if form.Settings.PaymentTableOnePageDuration > 0 {
+			updates["payment_table_one_page_duration"] = form.Settings.PaymentTableOnePageDuration
+		} else if form.Settings.PaymentTableOnePageDuration == 0 {
+			updates["payment_table_one_page_duration"] = 5 // 默认值
+		}
+
+		if form.Settings.NormalToAnnouncementCarouselDuration > 0 {
+			updates["normal_to_announcement_carousel_duration"] = form.Settings.NormalToAnnouncementCarouselDuration
+		} else if form.Settings.NormalToAnnouncementCarouselDuration == 0 {
+			updates["normal_to_announcement_carousel_duration"] = 10 // 默认值
+		}
+
+		if form.Settings.AnnouncementCarouselToFullAdsCarouselDuration > 0 {
+			updates["announcement_carousel_to_full_ads_carousel_duration"] = form.Settings.AnnouncementCarouselToFullAdsCarouselDuration
+		} else if form.Settings.AnnouncementCarouselToFullAdsCarouselDuration == 0 {
+			updates["announcement_carousel_to_full_ads_carousel_duration"] = 10 // 默认值
+		}
 	}
 
 	updatedDevice, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).Update(form.ID, updates)

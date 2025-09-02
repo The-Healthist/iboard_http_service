@@ -2,7 +2,7 @@
 FROM golang:1.23.0-alpine AS build-stage
 
 # 添加版本号作为构建参数
-ARG VERSION=1.1.3
+ARG VERSION=1.1.4
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://goproxy.cn,direct

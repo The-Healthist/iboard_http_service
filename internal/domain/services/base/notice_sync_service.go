@@ -1304,10 +1304,10 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 		shouldUpload = true
 
 		// Generate unique file name using UUID
-		currentTime := time.Now()
-		dir := currentTime.Format("2006-01-02") + "/"
 		uuid := uuid.New().String()
 		fileName := uuid + ".pdf"
+		// Use consistent directory structure with regular uploads
+		dir := "iboard/pdf/"
 		objectKey := dir + fileName
 
 		// Get OSS configuration from environment variables
