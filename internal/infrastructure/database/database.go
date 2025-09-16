@@ -145,64 +145,6 @@ func AutoMigrate(db *gorm.DB) error {
 	return nil
 }
 
-// initDefaultData 初始化默认数据
-func initDefaultData(db *gorm.DB) error {
-	log.Info("开始初始化默认数据...")
-
-	// 检查是否已有版本数据
-	var count int64
-	if err := db.Model(&models.Version{}).Count(&count).Error; err != nil {
-		log.Error("检查版本数据失败: %v", err)
-		return err
-	}
-
-	// 如果没有版本数据，创建默认版本
-	if count == 0 {
-		log.Info("创建默认版本数据...")
-		defaultVersion := &models.Version{
-			VersionNumber: "1.0.0",
-			BuildNumber:   "001",
-			Description:   "Initial version",
-			DownloadUrl:   "",
-			Status:        "active",
-		}
-
-		if err := db.Create(defaultVersion).Error; err != nil {
-			log.Error("创建默认版本失败: %v", err)
-			return err
-		}
-		log.Info("默认版本创建成功: %s", defaultVersion.VersionNumber)
-	}
-
-	// 检查是否已有App配置数据
-	var appCount int64
-	if err := db.Model(&models.App{}).Count(&appCount).Error; err != nil {
-		log.Error("检查App配置数据失败: %v", err)
-		return err
-	}
-
-	// 如果没有App配置数据，创建默认配置
-	if appCount == 0 {
-		log.Info("创建默认App配置...")
-		defaultApp := &models.App{
-			CurrentVersionID: 1, // 关联到第一个版本
-			LastCheckTime:    time.Now(),
-			UpdateInterval:   3600,
-			AutoUpdate:       false,
-			Status:           "active",
-		}
-
-		if err := db.Create(defaultApp).Error; err != nil {
-			log.Error("创建默认App配置失败: %v", err)
-			return err
-		}
-		log.Info("默认App配置创建成功")
-	}
-
-	log.Info("默认数据初始化完成")
-	return nil
-}
-
 // initDefaultVersionData 初始化默认版本数据
 func initDefaultVersionData(db *gorm.DB) error {
 	log.Info("开始初始化默认版本数据...")

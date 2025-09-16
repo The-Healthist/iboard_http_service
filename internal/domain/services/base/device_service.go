@@ -399,13 +399,12 @@ func (s *DeviceService) Update(id uint, updates map[string]interface{}) (*models
 			"advertisement_update_duration",
 			"app_update_duration",
 			"advertisement_play_duration",
-			"notice_play_duration",
-			"spare_duration",
 			"notice_stay_duration",
 			"bottom_carousel_duration",
 			"payment_table_one_page_duration",
 			"normal_to_announcement_carousel_duration",
 			"announcement_carousel_to_full_ads_carousel_duration",
+			"print_pass_word",
 		}
 
 		for _, field := range settingsFields {
@@ -515,9 +514,35 @@ func (s *DeviceService) GetByID(id uint) (*models.Device, error) {
 
 func (s *DeviceService) GetByDeviceID(deviceID string) (*models.Device, error) {
 	var device models.Device
-	if err := s.db.Preload("Building").Where("device_id = ?", deviceID).First(&device).Error; err != nil {
+
+	// 使用原始SQL查询获取设备信息，包含所有设置字段
+	if err := s.db.Raw(`
+		SELECT 
+			d.*,
+			d.arrearage_update_duration,
+			d.notice_update_duration,
+			d.advertisement_update_duration,
+			d.app_update_duration,
+			d.advertisement_play_duration,
+			d.notice_play_duration,
+			d.spare_duration,
+			d.notice_stay_duration,
+			d.bottom_carousel_duration,
+			d.payment_table_one_page_duration,
+			d.normal_to_announcement_carousel_duration,
+			d.announcement_carousel_to_full_ads_carousel_duration,
+			d.print_pass_word
+		FROM devices d
+		WHERE d.device_id = ?
+	`, deviceID).Scan(&device).Error; err != nil {
 		return nil, err
 	}
+
+	// 加载关联的建筑信息
+	if err := s.db.Preload("Building").First(&device, device.ID).Error; err != nil {
+		return nil, err
+	}
+
 	return &device, nil
 }
 
@@ -596,13 +621,50 @@ func (s *DeviceService) GetTopAdCarouselResolved(deviceID uint) ([]models.Advert
 	if len(ids) == 0 {
 		return []models.Advertisement{}, nil
 	}
+
 	var ads []models.Advertisement
 	if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil {
 		return nil, err
 	}
-	// 按 ids 顺序重排
-	byID := make(map[uint]models.Advertisement, len(ads))
-	for _, a := range ads {
+
+	// 过滤广告：检查状态和类型
+	var validAds []models.Advertisement
+	var invalidIds []uint
+	var needUpdateDevice bool
+
+	for _, ad := range ads {
+		isValid := true
+
+		// 检查状态：如果不是active，标记为无效
+		if ad.Status != field.Status("active") {
+			isValid = false
+			invalidIds = append(invalidIds, ad.ID)
+		}
+
+		// 检查类型：如果不是top或topfull，标记为无效
+		if ad.Display != field.AdvertisementDisplay("top") && ad.Display != field.AdvertisementDisplay("topfull") {
+			isValid = false
+			invalidIds = append(invalidIds, ad.ID)
+		}
+
+		if isValid {
+			validAds = append(validAds, ad)
+		} else {
+			needUpdateDevice = true
+		}
+	}
+
+	// 如果有无效的广告，从设备的轮播列表中移除
+	if needUpdateDevice && len(invalidIds) > 0 {
+		if err := s.removeInvalidAdsFromTopCarousel(deviceID, invalidIds); err != nil {
+			// 记录错误但不影响返回结果
+			fmt.Printf("Failed to update device carousel list: %v\n", err)
+		}
+	}
+
+	// 按原始ID顺序排列有效广告
+	byID := make(map[uint]models.Advertisement, len(validAds))
+	for _, a := range validAds {
 		byID[a.ID] = a
 	}
 	ordered := make([]models.Advertisement, 0, len(ids))
@@ -611,6 +673,7 @@ func (s *DeviceService) GetTopAdCarouselResolved(deviceID uint) ([]models.Advert
 			ordered = append(ordered, a)
 		}
 	}
+
 	return ordered, nil
 }
 
@@ -623,12 +686,50 @@ func (s *DeviceService) GetFullAdCarouselResolved(deviceID uint) ([]models.Adver
 	if len(ids) == 0 {
 		return []models.Advertisement{}, nil
 	}
+
 	var ads []models.Advertisement
 	if err := s.db.Where("id IN ?", ids).Preload("File").Find(&ads).Error; err != nil {
 		return nil, err
 	}
-	byID := make(map[uint]models.Advertisement, len(ads))
-	for _, a := range ads {
+
+	// 过滤广告：检查状态和类型
+	var validAds []models.Advertisement
+	var invalidIds []uint
+	var needUpdateDevice bool
+
+	for _, ad := range ads {
+		isValid := true
+
+		// 检查状态：如果不是active，标记为无效
+		if ad.Status != field.Status("active") {
+			isValid = false
+			invalidIds = append(invalidIds, ad.ID)
+		}
+
+		// 检查类型：如果不是full或topfull，标记为无效
+		if ad.Display != field.AdvertisementDisplay("full") && ad.Display != field.AdvertisementDisplay("topfull") {
+			isValid = false
+			invalidIds = append(invalidIds, ad.ID)
+		}
+
+		if isValid {
+			validAds = append(validAds, ad)
+		} else {
+			needUpdateDevice = true
+		}
+	}
+
+	// 如果有无效的广告，从设备的轮播列表中移除
+	if needUpdateDevice && len(invalidIds) > 0 {
+		if err := s.removeInvalidAdsFromFullCarousel(deviceID, invalidIds); err != nil {
+			// 记录错误但不影响返回结果
+			fmt.Printf("Failed to update device carousel list: %v\n", err)
+		}
+	}
+
+	// 按原始ID顺序排列有效广告
+	byID := make(map[uint]models.Advertisement, len(validAds))
+	for _, a := range validAds {
 		byID[a.ID] = a
 	}
 	ordered := make([]models.Advertisement, 0, len(ids))
@@ -637,6 +738,7 @@ func (s *DeviceService) GetFullAdCarouselResolved(deviceID uint) ([]models.Adver
 			ordered = append(ordered, a)
 		}
 	}
+
 	return ordered, nil
 }
 
@@ -649,12 +751,44 @@ func (s *DeviceService) GetNoticeCarouselResolved(deviceID uint) ([]models.Notic
 	if len(ids) == 0 {
 		return []models.Notice{}, nil
 	}
+
 	var notices []models.Notice
 	if err := s.db.Where("id IN ?", ids).Preload("File").Find(&notices).Error; err != nil {
 		return nil, err
 	}
-	byID := make(map[uint]models.Notice, len(notices))
-	for _, n := range notices {
+
+	// 过滤通知：检查状态
+	var validNotices []models.Notice
+	var invalidIds []uint
+	var needUpdateDevice bool
+
+	for _, notice := range notices {
+		isValid := true
+
+		// 检查状态：如果不是active，标记为无效
+		if notice.Status != field.Status("active") {
+			isValid = false
+			invalidIds = append(invalidIds, notice.ID)
+		}
+
+		if isValid {
+			validNotices = append(validNotices, notice)
+		} else {
+			needUpdateDevice = true
+		}
+	}
+
+	// 如果有无效的通知，从设备的轮播列表中移除
+	if needUpdateDevice && len(invalidIds) > 0 {
+		if err := s.removeInvalidNoticesFromCarousel(deviceID, invalidIds); err != nil {
+			// 记录错误但不影响返回结果
+			fmt.Printf("Failed to update device notice carousel list: %v\n", err)
+		}
+	}
+
+	// 按原始ID顺序排列有效通知
+	byID := make(map[uint]models.Notice, len(validNotices))
+	for _, n := range validNotices {
 		byID[n.ID] = n
 	}
 	ordered := make([]models.Notice, 0, len(ids))
@@ -663,6 +797,7 @@ func (s *DeviceService) GetNoticeCarouselResolved(deviceID uint) ([]models.Notic
 			ordered = append(ordered, n)
 		}
 	}
+
 	return ordered, nil
 }
 
@@ -902,4 +1037,130 @@ func (s *DeviceService) GetDevicesByBuildingWithStatus(buildingID uint) ([]Devic
 	}
 
 	return devicesWithStatus, nil
+}
+
+// removeInvalidAdsFromTopCarousel 从设备的顶部广告轮播列表中移除无效广告
+func (s *DeviceService) removeInvalidAdsFromTopCarousel(deviceID uint, invalidIds []uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var device models.Device
+		if err := tx.First(&device, deviceID).Error; err != nil {
+			return err
+		}
+
+		if device.TopAdvertisementCarouselList == nil {
+			return nil
+		}
+
+		var topList []uint
+		if err := json.Unmarshal(device.TopAdvertisementCarouselList, &topList); err != nil {
+			return err
+		}
+
+		// 移除无效ID
+		var newList []uint
+		for _, id := range topList {
+			isInvalid := false
+			for _, invalidId := range invalidIds {
+				if id == invalidId {
+					isInvalid = true
+					break
+				}
+			}
+			if !isInvalid {
+				newList = append(newList, id)
+			}
+		}
+
+		// 更新设备的轮播列表
+		newListBytes, err := json.Marshal(newList)
+		if err != nil {
+			return err
+		}
+
+		return tx.Model(&models.Device{}).Where("id = ?", deviceID).Update("top_advertisement_carousel_list", newListBytes).Error
+	})
+}
+
+// removeInvalidAdsFromFullCarousel 从设备的全屏广告轮播列表中移除无效广告
+func (s *DeviceService) removeInvalidAdsFromFullCarousel(deviceID uint, invalidIds []uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var device models.Device
+		if err := tx.First(&device, deviceID).Error; err != nil {
+			return err
+		}
+
+		if device.FullAdvertisementCarouselList == nil {
+			return nil
+		}
+
+		var fullList []uint
+		if err := json.Unmarshal(device.FullAdvertisementCarouselList, &fullList); err != nil {
+			return err
+		}
+
+		// 移除无效ID
+		var newList []uint
+		for _, id := range fullList {
+			isInvalid := false
+			for _, invalidId := range invalidIds {
+				if id == invalidId {
+					isInvalid = true
+					break
+				}
+			}
+			if !isInvalid {
+				newList = append(newList, id)
+			}
+		}
+
+		// 更新设备的轮播列表
+		newListBytes, err := json.Marshal(newList)
+		if err != nil {
+			return err
+		}
+
+		return tx.Model(&models.Device{}).Where("id = ?", deviceID).Update("full_advertisement_carousel_list", newListBytes).Error
+	})
+}
+
+// removeInvalidNoticesFromCarousel 从设备的通知轮播列表中移除无效通知
+func (s *DeviceService) removeInvalidNoticesFromCarousel(deviceID uint, invalidIds []uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var device models.Device
+		if err := tx.First(&device, deviceID).Error; err != nil {
+			return err
+		}
+
+		if device.NoticeCarouselList == nil {
+			return nil
+		}
+
+		var noticeList []uint
+		if err := json.Unmarshal(device.NoticeCarouselList, &noticeList); err != nil {
+			return err
+		}
+
+		// 移除无效ID
+		var newList []uint
+		for _, id := range noticeList {
+			isInvalid := false
+			for _, invalidId := range invalidIds {
+				if id == invalidId {
+					isInvalid = true
+					break
+				}
+			}
+			if !isInvalid {
+				newList = append(newList, id)
+			}
+		}
+
+		// 更新设备的轮播列表
+		newListBytes, err := json.Marshal(newList)
+		if err != nil {
+			return err
+		}
+
+		return tx.Model(&models.Device{}).Where("id = ?", deviceID).Update("notice_carousel_list", newListBytes).Error
+	})
 }

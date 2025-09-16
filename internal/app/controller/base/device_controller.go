@@ -138,9 +138,8 @@ func HandleFuncDevice(container *container.ServiceContainer, method string) gin.
 // @Param        settings.advertisementUpdateDuration formData int false "广告更新间隔(分钟)" example:"15"
 // @Param        settings.appUpdateDuration formData int false "应用更新间隔(秒)" example:"600"
 // @Param        settings.advertisementPlayDuration formData int false "广告播放时长(秒)" example:"30"
-// @Param        settings.noticePlayDuration formData int false "通知播放时长(秒)" example:"20"
-// @Param        settings.spareDuration formData int false "空闲时长(秒)" example:"10"
 // @Param        settings.noticeStayDuration formData int false "通知停留时长(秒)" example:"5"
+// @Param        settings.printPassWord formData string false "打印密码" example:"1090119"
 // @Param        settings.bottomCarouselDuration formData int false "底部轮播切换时间(秒)" example:"10"
 // @Param        settings.paymentTableOnePageDuration formData int false "缴费表格单页停留时间(秒)" example:"5"
 // @Param        settings.normalToAnnouncementCarouselDuration formData int false "正常播放到公告轮播时间(秒)" example:"10"
@@ -255,9 +254,8 @@ func (c *DeviceController) Get() {
 // @Param        settings.advertisementUpdateDuration formData int false "广告更新间隔(分钟)" example:"15"
 // @Param        settings.appUpdateDuration formData int false "应用更新间隔(秒)" example:"600"
 // @Param        settings.advertisementPlayDuration formData int false "广告播放时长(秒)" example:"30"
-// @Param        settings.noticePlayDuration formData int false "通知播放时长(秒)" example:"20"
-// @Param        settings.spareDuration formData int false "空闲时长(秒)" example:"10"
 // @Param        settings.noticeStayDuration formData int false "通知停留时长(秒)" example:"5"
+// @Param        settings.printPassWord formData string false "打印密码" example:"1090119"
 // @Param        settings.bottomCarouselDuration formData int false "底部轮播切换时间(秒)" example:"10"
 // @Param        settings.paymentTableOnePageDuration formData int false "缴费表格单页停留时间(秒)" example:"5"
 // @Param        settings.normalToAnnouncementCarouselDuration formData int false "正常播放到公告轮播时间(秒)" example:"10"
@@ -322,16 +320,8 @@ func (c *DeviceController) Update() {
 			updates["advertisement_play_duration"] = 30 // 默认值
 		}
 
-		if form.Settings.NoticePlayDuration > 0 {
-			updates["notice_play_duration"] = form.Settings.NoticePlayDuration
-		} else if form.Settings.NoticePlayDuration == 0 {
-			updates["notice_play_duration"] = 30 // 默认值
-		}
-
-		if form.Settings.SpareDuration > 0 {
-			updates["spare_duration"] = form.Settings.SpareDuration
-		} else if form.Settings.SpareDuration == 0 {
-			updates["spare_duration"] = 10 // 默认值
+		if form.Settings.PrintPassWord != "" {
+			updates["print_pass_word"] = form.Settings.PrintPassWord
 		}
 
 		if form.Settings.NoticeStayDuration > 0 {

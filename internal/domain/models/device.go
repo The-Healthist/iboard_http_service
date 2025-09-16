@@ -26,12 +26,13 @@ type DeviceSettings struct {
 	AppUpdateDuration int `json:"appUpdateDuration" gorm:"default:600"` // 应用更新时间间隔
 	// durations (in seconds)
 	AdvertisementPlayDuration int `json:"advertisementPlayDuration" gorm:"default:30"` // 广告播放时间
-	NoticePlayDuration        int `json:"noticePlayDuration" gorm:"default:30"`        // 通知播放时间
-	SpareDuration             int `json:"spareDuration" gorm:"default:10"`             // 手动操作过时时间
-	NoticeStayDuration        int `json:"noticeStayDuration" gorm:"default:10"`        // 通知停留时间
+	// NoticePlayDuration        int `json:"noticePlayDuration" gorm:"default:30"`        // 通知播放时间
+	// SpareDuration             int `json:"spareDuration" gorm:"default:10"`             // 手动操作过时时间
+	NoticeStayDuration int `json:"noticeStayDuration" gorm:"default:10"` // 通知停留时间
 
-	BottomCarouselDuration                        int `json:"bottomCarouselDuration" gorm:"default:10"`                        // 底部轮播切换时间
-	PaymentTableOnePageDuration                   int `json:"paymentTableOnePageDuration" gorm:"default:5"`                    // 缴费表格单页停留时间
-	NormalToAnnouncementCarouselDuration          int `json:"normalToAnnouncementCarouselDuration" gorm:"default:10"`          // 正常播放到公告轮播时间
-	AnnouncementCarouselToFullAdsCarouselDuration int `json:"announcementCarouselToFullAdsCarouselDuration" gorm:"default:10"` // 公告轮播到全屏广告轮播时间
+	BottomCarouselDuration                        int    `json:"bottomCarouselDuration" gorm:"default:10"`                        // 底部轮播切换时间
+	PaymentTableOnePageDuration                   int    `json:"paymentTableOnePageDuration" gorm:"default:5"`                    // 缴费表格单页停留时间
+	NormalToAnnouncementCarouselDuration          int    `json:"normalToAnnouncementCarouselDuration" gorm:"default:10"`          // 正常播放到公告轮播时间
+	AnnouncementCarouselToFullAdsCarouselDuration int    `json:"announcementCarouselToFullAdsCarouselDuration" gorm:"default:10"` // 公告轮播到全屏广告轮播时间
+	PrintPassWord                                 string `json:"printPassWord" gorm:"default:'1090119'"`                          // 打印密码
 }

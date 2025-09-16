@@ -87,7 +87,7 @@ type CreateNoticeRequest struct {
 	IsIsmartNotice bool             `json:"isIsmartNotice" example:"false"`
 	Priority       int              `json:"priority" example:"1"`
 	Path           string           `json:"path" binding:"required" example:"/uploads/documents/owners_meeting.pdf"`
-	FileType       field.FileType   `json:"fileType" binding:"required" example:"pdf"`
+	FileType       field.FileType   `json:"fileType" example:"pdf"`
 }
 
 // 1.Create 创建通知
@@ -130,6 +130,7 @@ func (c *NoticeController) Create() {
 
 	// If path is provided, find the corresponding file
 	var fileID *uint
+	fileType := form.FileType
 	if form.Path != "" {
 		var file base_models.File
 		if err := databases.DB_CONN.Where("path = ?", form.Path).First(&file).Error; err != nil {
@@ -140,6 +141,44 @@ func (c *NoticeController) Create() {
 			return
 		}
 		fileID = &file.ID
+
+		// If FileType is not provided, infer it from the file path
+		if fileType == "" {
+			// Extract file extension from path
+			path := form.Path
+			if len(path) > 0 {
+				// Find the last dot in the path
+				lastDot := -1
+				for i := len(path) - 1; i >= 0; i-- {
+					if path[i] == '.' {
+						lastDot = i
+						break
+					}
+				}
+				if lastDot != -1 && lastDot < len(path)-1 {
+					ext := path[lastDot+1:]
+					// Convert to lowercase and check if it's a valid file type
+					switch ext {
+					case "pdf":
+						fileType = field.FileTypePdf
+					default:
+						// Default to pdf if extension is not recognized
+						fileType = field.FileTypePdf
+					}
+				} else {
+					// Default to pdf if no extension found
+					fileType = field.FileTypePdf
+				}
+			} else {
+				// Default to pdf if path is empty
+				fileType = field.FileTypePdf
+			}
+		}
+	} else {
+		// If no path provided, default to pdf
+		if fileType == "" {
+			fileType = field.FileTypePdf
+		}
 	}
 
 	notice := &base_models.Notice{
@@ -153,7 +192,7 @@ func (c *NoticeController) Create() {
 		IsPublic:       form.IsPublic,
 		IsIsmartNotice: form.IsIsmartNotice,
 		Priority:       form.Priority,
-		FileType:       form.FileType,
+		FileType:       fileType,
 	}
 
 	if err := c.Container.GetService("notice").(base_services.InterfaceNoticeService).Create(notice); err != nil {
@@ -202,7 +241,7 @@ func (c *NoticeController) CreateMany() {
 		IsIsmartNotice bool             `json:"isIsmartNotice" example:"false"`
 		Priority       int              `json:"priority" example:"1"`
 		Path           string           `json:"path" binding:"required" example:"/uploads/documents/owners_meeting.pdf"`
-		FileType       field.FileType   `json:"fileType" binding:"required" example:"pdf"`
+		FileType       field.FileType   `json:"fileType" example:"pdf"`
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&forms); err != nil {
@@ -215,6 +254,13 @@ func (c *NoticeController) CreateMany() {
 
 	var notices []*base_models.Notice
 	for _, form := range forms {
+		// Handle FileType similar to single create
+		fileType := form.FileType
+		if fileType == "" {
+			// Default to pdf if not provided
+			fileType = field.FileTypePdf
+		}
+
 		notice := &base_models.Notice{
 			Title:          form.Title,
 			Description:    form.Description,
@@ -225,6 +271,7 @@ func (c *NoticeController) CreateMany() {
 			IsPublic:       form.IsPublic,
 			IsIsmartNotice: form.IsIsmartNotice,
 			Priority:       form.Priority,
+			FileType:       fileType,
 		}
 		notices = append(notices, notice)
 	}

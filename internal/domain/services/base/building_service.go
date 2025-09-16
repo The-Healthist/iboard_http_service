@@ -118,8 +118,7 @@ func (s *BuildingService) GetByID(id uint) (*base_models.Building, error) {
 				"devices.notice_update_duration, " +
 				"devices.advertisement_update_duration, " +
 				"devices.advertisement_play_duration, " +
-				"devices.notice_play_duration, " +
-				"devices.spare_duration, " +
+				"devices.print_pass_word, " +
 				"devices.notice_stay_duration")
 		}).
 		Preload("Notices.File").

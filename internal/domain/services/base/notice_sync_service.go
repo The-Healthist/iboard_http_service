@@ -857,6 +857,8 @@ func (s *NoticeSyncService) syncDeviceNoticeCarousel(ctx context.Context, buildi
 
 // updateDeviceNoticeCarousel 更新单个设备的通知轮播列表
 func (s *NoticeSyncService) updateDeviceNoticeCarousel(ctx context.Context, deviceID uint, noticeMD5 string, noticeID uint, action string) error {
+	_ = ctx       // 暂时未使用，保留用于未来扩展
+	_ = noticeMD5 // 暂时未使用，保留用于未来扩展
 	// 获取设备的当前轮播列表
 	var device base_models.Device
 	if err := s.db.Select("notice_carousel_list").First(&device, deviceID).Error; err != nil {
