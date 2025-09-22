@@ -345,7 +345,7 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		Preload("File").Find(&existingNotices).Error; err != nil {
 		return nil, fmt.Errorf("failed to get existing notices: %v", err)
 	}
-	log.Info("数据库中找到现有通知 | 建筑ID: %d | 数量: %d", buildingID, len(existingNotices))
+	log.Info("数据库中找到现有iSmart通知 | 建筑ID: %d | 数量: %d", buildingID, len(existingNotices))
 
 	// 创建现有通知的MD5映射
 	existingMD5Map := make(map[string]base_models.Notice)
@@ -414,9 +414,22 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 
 	log.Info("数据库有%d个iSmart通知，旧系统有%d个通知", totalIsmartNotices, len(oldNotices))
 
+	// 保险机制：确保数据一致性检查
+	// 验证所有现有通知确实是 iSmart 通知
+	var nonIsmartCount int64
+	if err := s.db.Model(&base_models.Notice{}).
+		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", buildingID, false).
+		Count(&nonIsmartCount).Error; err != nil {
+		log.Warn("检查非iSmart通知失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+	} else if nonIsmartCount > 0 {
+		log.Warn("发现%d个非iSmart通知绑定到建筑物 | 建筑ID: %d", nonIsmartCount, buildingID)
+	}
+
 	// 如果通知数量不匹配，强制同步
 	if totalIsmartNotices != int64(len(oldNotices)) {
-		log.Warn("通知数量不匹配，强制同步 | 建筑ID: %d", buildingID)
+		log.Warn("iSmart通知数量不匹配，强制同步 | 建筑ID: %d | 数据库: %d | 旧系统: %d",
+			buildingID, totalIsmartNotices, len(oldNotices))
 		// 清除缓存以强制同步
 		if err := s.redis.Del(ctx, fmt.Sprintf("building_notice_ids:%d", buildingID)).Err(); err != nil {
 			return nil, fmt.Errorf("failed to clear notice IDs cache: %v", err)
@@ -698,6 +711,11 @@ func (s *NoticeSyncService) SyncBuildingNotices(buildingID uint, claims jwt.MapC
 		log.Warn("警告: 更新缓存通知数量失败 | 建筑ID: %d | 错误: %v", buildingID, err)
 	}
 
+	// 保险机制：最终一致性验证
+	if err := s.validateFinalConsistency(ctx, buildingID, len(oldNotices)); err != nil {
+		log.Warn("警告: 最终一致性验证失败 | 建筑ID: %d | 错误: %v", buildingID, err)
+	}
+
 	// 同步设备轮播列表
 	if err := s.syncAllDeviceNoticeCarousels(ctx, buildingID, needSyncNotices, changeNotices); err != nil {
 		log.Warn("警告: 设备轮播同步失败 | 建筑ID: %d | 错误: %v", buildingID, err)
@@ -746,8 +764,58 @@ func (s *NoticeSyncService) setSyncedNoticeMD5s(ctx context.Context, buildingID 
 	return s.redis.Set(ctx, key, string(jsonMD5s), getNoticeSyncCacheDuration()).Err()
 }
 
-// 添加新函数：解绑通知
+// validateFinalConsistency 验证最终数据一致性
+func (s *NoticeSyncService) validateFinalConsistency(ctx context.Context, buildingID uint, expectedCount int) error {
+	// 获取实际的 iSmart 通知数量
+	var actualCount int64
+	if err := s.db.Model(&base_models.Notice{}).
+		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", buildingID, true).
+		Count(&actualCount).Error; err != nil {
+		return fmt.Errorf("failed to get actual iSmart notice count: %v", err)
+	}
+
+	// 检查数量是否一致
+	if actualCount != int64(expectedCount) {
+		log.Error("最终一致性验证失败 | 建筑ID: %d | 期望: %d | 实际: %d",
+			buildingID, expectedCount, actualCount)
+		return fmt.Errorf("consistency check failed: expected %d iSmart notices, got %d",
+			expectedCount, actualCount)
+	}
+
+	// 验证所有绑定到该建筑的通知都是 iSmart 通知
+	var nonIsmartCount int64
+	if err := s.db.Model(&base_models.Notice{}).
+		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("notice_buildings.building_id = ? AND notices.is_ismart_notice = ?", buildingID, false).
+		Count(&nonIsmartCount).Error; err != nil {
+		return fmt.Errorf("failed to check non-iSmart notices: %v", err)
+	}
+
+	if nonIsmartCount > 0 {
+		log.Error("发现非iSmart通知绑定到建筑物 | 建筑ID: %d | 数量: %d", buildingID, nonIsmartCount)
+		return fmt.Errorf("found %d non-iSmart notices bound to building %d", nonIsmartCount, buildingID)
+	}
+
+	log.Info("最终一致性验证通过 | 建筑ID: %d | iSmart通知数量: %d", buildingID, actualCount)
+	return nil
+}
+
+// 添加新函数：解绑通知（仅限iSmart通知）
 func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedNotices *[]string) error {
+	// 保险机制：验证通知是否为 iSmart 通知
+	var notice base_models.Notice
+	if err := s.db.First(&notice, noticeID).Error; err != nil {
+		*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to get notice ID %d for validation: %v", noticeID, err))
+		return err
+	}
+
+	if !notice.IsIsmartNotice {
+		log.Warn("尝试解绑非iSmart通知，跳过 | 通知ID: %d | 建筑ID: %d", noticeID, buildingID)
+		*failedNotices = append(*failedNotices, fmt.Sprintf("Notice ID %d is not an iSmart notice, skipping unbind", noticeID))
+		return fmt.Errorf("notice ID %d is not an iSmart notice", noticeID)
+	}
+
 	// 开始事务
 	tx := s.db.Begin()
 
@@ -755,11 +823,11 @@ func (s *NoticeSyncService) unbindNotice(buildingID uint, noticeID uint, failedN
 	if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ? AND building_id = ?",
 		noticeID, buildingID).Error; err != nil {
 		tx.Rollback()
-		*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to unbind notice ID %d: %v", noticeID, err))
+		*failedNotices = append(*failedNotices, fmt.Sprintf("Failed to unbind iSmart notice ID %d: %v", noticeID, err))
 		return err
 	}
 
-	log.Info("解绑通知ID | 通知ID: %d | 建筑ID: %d", noticeID, buildingID)
+	log.Info("解绑iSmart通知ID | 通知ID: %d | 建筑ID: %d", noticeID, buildingID)
 
 	// 检查通知是否绑定到其他建筑物
 	var buildingCount int64
@@ -922,7 +990,7 @@ func (s *NoticeSyncService) updateDeviceNoticeCarousel(ctx context.Context, devi
 	return nil
 }
 
-// syncAllDeviceNoticeCarousels 同步所有设备的通知轮播列表
+// syncAllDeviceNoticeCarousels 同步所有设备的通知轮播列表（仅限iSmart通知）
 func (s *NoticeSyncService) syncAllDeviceNoticeCarousels(ctx context.Context, buildingID uint, addedNotices []int, removedNotices []int) error {
 	log.Info("开始同步所有设备轮播列表 | 建筑ID: %d | 新增: %d | 删除: %d",
 		buildingID, len(addedNotices), len(removedNotices))
@@ -936,11 +1004,19 @@ func (s *NoticeSyncService) syncAllDeviceNoticeCarousels(ctx context.Context, bu
 			continue
 		}
 
+		// 保险机制：验证是否为 iSmart 通知
+		if !notice.IsIsmartNotice {
+			log.Warn("跳过非iSmart通知的设备轮播同步 | 通知ID: %d | 建筑ID: %d", noticeID, buildingID)
+			continue
+		}
+
 		if notice.File != nil {
 			noticeMD5 := notice.File.Md5
 			if err := s.syncDeviceNoticeCarousel(ctx, buildingID, noticeMD5, uint(noticeID), "add"); err != nil {
 				log.Warn("同步设备轮播失败(新增) | 建筑ID: %d | 通知ID: %d | 错误: %v",
 					buildingID, noticeID, err)
+			} else {
+				log.Debug("成功同步iSmart通知到设备轮播(新增) | 建筑ID: %d | 通知ID: %d", buildingID, noticeID)
 			}
 		}
 	}
@@ -954,11 +1030,19 @@ func (s *NoticeSyncService) syncAllDeviceNoticeCarousels(ctx context.Context, bu
 			continue
 		}
 
+		// 保险机制：验证是否为 iSmart 通知
+		if !notice.IsIsmartNotice {
+			log.Warn("跳过非iSmart通知的设备轮播同步 | 通知ID: %d | 建筑ID: %d", noticeID, buildingID)
+			continue
+		}
+
 		if notice.File != nil {
 			noticeMD5 := notice.File.Md5
 			if err := s.syncDeviceNoticeCarousel(ctx, buildingID, noticeMD5, uint(noticeID), "remove"); err != nil {
 				log.Warn("同步设备轮播失败(删除) | 建筑ID: %d | 通知ID: %d | 错误: %v",
 					buildingID, noticeID, err)
+			} else {
+				log.Debug("成功同步iSmart通知到设备轮播(删除) | 建筑ID: %d | 通知ID: %d", buildingID, noticeID)
 			}
 		}
 	}
@@ -1408,7 +1492,7 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 		}
 	}
 
-	// Create notice
+	// Create notice - 确保只创建 iSmart 通知
 	notice := &base_models.Notice{
 		Title:          oldNotice.MessTitle,
 		Description:    oldNotice.MessTitle,
@@ -1417,10 +1501,14 @@ func (s *NoticeSyncService) processNotice(buildingID uint, oldNotice OldSystemNo
 		StartTime:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
 		EndTime:        time.Date(2100, 2, 1, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)),
 		IsPublic:       true,
-		IsIsmartNotice: true,
+		IsIsmartNotice: true, // 明确标识为 iSmart 通知
 		FileID:         &fileForNotice.ID,
 		FileType:       field.FileTypePdf,
+		ReferenceID:    nil, // Will be set if needed in API calls
 	}
+
+	log.Debug("创建iSmart通知 | 旧系统ID: %d | 标题: %s | 建筑ID: %d",
+		oldNotice.ID, oldNotice.MessTitle, buildingID)
 
 	// Create notice and bind to building in a transaction
 	return s.db.Transaction(func(tx *gorm.DB) error {

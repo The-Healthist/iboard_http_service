@@ -21,5 +21,6 @@ type Notice struct {
 	FileID         *uint            `json:"fileId"         gorm:"default:null"`
 	File           *File            `json:"file,omitempty" gorm:"foreignKey:FileID"`
 	FileType       field.FileType   `json:"fileType"       gorm:"size:50" default:"pdf"`
+	ReferenceID    *string          `json:"referenceId"    gorm:"size:255;default:null"` // Optional reference ID
 	Buildings      []Building       `json:"-"              gorm:"many2many:notice_buildings;"`
 }

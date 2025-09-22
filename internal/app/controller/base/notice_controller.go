@@ -1,6 +1,14 @@
 package http_base_controller
 
 import (
+	"bytes"
+	"crypto/md5"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -11,6 +19,8 @@ import (
 	"github.com/The-Healthist/iboard_http_service/pkg/utils"
 	"github.com/The-Healthist/iboard_http_service/pkg/utils/field"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type InterfaceNoticeController interface {
@@ -20,6 +30,8 @@ type InterfaceNoticeController interface {
 	Update()
 	Delete()
 	GetOne()
+	SyncCreateWithFile()
+	SyncDelete()
 }
 
 // NoticeController handles notice operations
@@ -68,6 +80,16 @@ func HandleFuncNotice(container *container.ServiceContainer, method string) gin.
 		return func(ctx *gin.Context) {
 			controller := NewNoticeController(ctx, container)
 			controller.GetOne()
+		}
+	case "syncCreateWithFile":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.SyncCreateWithFile()
+		}
+	case "syncDelete":
+		return func(ctx *gin.Context) {
+			controller := NewNoticeController(ctx, container)
+			controller.SyncDelete()
 		}
 	default:
 		return func(ctx *gin.Context) {
@@ -621,5 +643,488 @@ func (c *NoticeController) GetOne() {
 	c.Ctx.JSON(200, gin.H{
 		"message": "Get notice success",
 		"data":    notice,
+	})
+}
+
+type SyncCreateNoticeRequest struct {
+	Title       string           `json:"title" binding:"required" example:"系统维护通知"`
+	Description string           `json:"description" example:"系统升级说明"`
+	Type        field.NoticeType `json:"type" binding:"required" example:"normal"`
+	Status      field.Status     `json:"status" binding:"required" example:"active"`
+	StartTime   *time.Time       `json:"startTime" binding:"required" example:"2024-01-01T00:00:00+08:00"`
+	EndTime     *time.Time       `json:"endTime" binding:"required" example:"2024-02-01T00:00:00+08:00"`
+	IsPublic    bool             `json:"isPublic" binding:"required" example:"true"`
+	Path        string           `json:"path" binding:"required" example:"https://s3.us-west-2.amazonaws.com/72ismart/blg_mess/0314100/pdf/01801c8eb82e434886e4ee52b2630bf6_10_%E8%BE%AD%E4%BB%BB%E5%A4%A7%E5%BB%88%E7%B6%93%E7%90%86%E4%BA%BA%E8%81%B7%E5%8B%99.pdf"`
+	FileType    field.FileType   `json:"fileType" example:"pdf"`
+	BuildingId  string           `json:"buildingId" binding:"required" example:"0314100"`
+	ReferenceID *string          `json:"referenceId" example:"ref_001"`
+}
+
+type SyncDeleteNoticeRequest struct {
+	ID uint `json:"id" binding:"required" example:"1"`
+}
+
+// SyncCreateWithFile 同步创建通知（下载文件并创建通知）
+// @Summary      同步创建通知
+// @Description  从URL下载文件并创建通知，绑定到指定建筑物，用于同步旧系统数据。使用buildingId查找对应的building（通过ismart_id匹配）
+// @Tags         Notice
+// @Accept       json
+// @Produce      json
+// @Param        notice body SyncCreateNoticeRequest true "同步通知信息"
+// @Success      200  {object}  map[string]interface{} "返回创建的通知信息"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /notice/sync/create [post]
+func (c *NoticeController) SyncCreateWithFile() {
+	var form SyncCreateNoticeRequest
+
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "invalid form",
+		})
+		return
+	}
+
+	// 查找建筑物 - 使用buildingId作为ismartId来查找
+	var building base_models.Building
+	if err := databases.DB_CONN.Where("ismart_id = ?", form.BuildingId).First(&building).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.Ctx.JSON(400, gin.H{
+				"error":   "building not found",
+				"message": fmt.Sprintf("building with ismartId %s not found", form.BuildingId),
+			})
+		} else {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to query building",
+			})
+		}
+		return
+	}
+
+	// 设置默认值
+	now := time.Now()
+	startTime := now
+	endTime := now.AddDate(1, 0, 0) // 1年后
+	status := field.Status("active")
+
+	if form.StartTime != nil {
+		startTime = *form.StartTime
+	}
+	if form.EndTime != nil {
+		endTime = *form.EndTime
+	}
+	if form.Status != "" {
+		status = form.Status
+	}
+
+	// 设置默认文件类型
+	fileType := form.FileType
+	if fileType == "" {
+		fileType = field.FileTypePdf
+	}
+
+	// 下载文件
+	fileResp, err := http.Get(form.Path)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to download file from URL",
+		})
+		return
+	}
+	defer fileResp.Body.Close()
+
+	if fileResp.StatusCode != http.StatusOK {
+		c.Ctx.JSON(400, gin.H{
+			"error":   fmt.Sprintf("failed to download file, status code: %d", fileResp.StatusCode),
+			"message": "file download failed",
+		})
+		return
+	}
+
+	fileContent, err := io.ReadAll(fileResp.Body)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to read file content",
+		})
+		return
+	}
+
+	// 计算文件MD5
+	fileSize := len(fileContent)
+	md5Hash := md5.Sum(fileContent)
+	md5Str := hex.EncodeToString(md5Hash[:])
+	mimeType := http.DetectContentType(fileContent)
+
+	// 检查该文件MD5是否已经绑定到指定建筑物
+	var existingNotice base_models.Notice
+	err = databases.DB_CONN.
+		Joins("JOIN files ON notices.file_id = files.id").
+		Joins("JOIN notice_buildings ON notices.id = notice_buildings.notice_id").
+		Where("files.md5 = ? AND notice_buildings.building_id = ? AND notices.is_ismart_notice = ?",
+			md5Str, building.ID, true).
+		First(&existingNotice).Error
+
+	if err == nil {
+		// 该文件已经绑定到指定建筑物的iSmart通知，返回重复错误
+		c.Ctx.JSON(400, gin.H{
+			"error":   "Notice with same file already bound to this building",
+			"message": "duplicate notice for building",
+			"data": gin.H{
+				"existingNoticeId": existingNotice.ID,
+				"buildingId":       building.ID,
+				"ismartId":         building.IsmartID,
+			},
+		})
+		return
+	} else if err != gorm.ErrRecordNotFound {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to check existing notice binding",
+		})
+		return
+	}
+
+	// 查找是否存在相同MD5的文件
+	var existingFile base_models.File
+	var fileForNotice *base_models.File
+	var shouldCreateFile bool = true
+
+	err = databases.DB_CONN.Where("md5 = ?", md5Str).First(&existingFile).Error
+	if err == nil {
+		// 文件存在，但没有绑定到该建筑物，可以重用
+		fileForNotice = &existingFile
+		shouldCreateFile = false
+	} else if err == gorm.ErrRecordNotFound {
+		// 文件不存在，需要创建
+		shouldCreateFile = true
+	} else {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to check existing file",
+		})
+		return
+	}
+
+	// 如果需要创建文件，上传到OSS并创建文件记录
+	if shouldCreateFile {
+		uuid := uuid.New().String()
+		fileName := uuid + ".pdf"
+		dir := "iboard/pdf/"
+		objectKey := dir + fileName
+
+		// 获取OSS配置
+		host := os.Getenv("HOST")
+		if host == "" {
+			host = "http://idreamsky.oss-cn-beijing.aliyuncs.com"
+		}
+
+		// 创建文件记录
+		fileForNotice = &base_models.File{
+			Path:         host + "/" + objectKey,
+			Size:         int64(fileSize),
+			MimeType:     mimeType,
+			Oss:          "aliyun",
+			UploaderType: field.UploaderTypeSuperAdmin,
+			UploaderID:   1,
+			Uploader:     "system@sync",
+			Md5:          md5Str,
+		}
+
+		// 获取上传参数
+		uploadService := c.Container.GetService("upload").(base_services.IUploadService)
+		uploadParams, err := uploadService.GetUploadParamsSync(objectKey)
+		if err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to get upload params",
+			})
+			return
+		}
+
+		// 上传文件到OSS
+		var b bytes.Buffer
+		w := multipart.NewWriter(&b)
+
+		formFields := []struct {
+			key      string
+			paramKey string
+		}{
+			{key: "key", paramKey: "dir"},
+			{key: "policy", paramKey: "policy"},
+			{key: "OSSAccessKeyId", paramKey: "accessid"},
+			{key: "success_action_status", paramKey: ""},
+			{key: "callback", paramKey: "callback"},
+			{key: "signature", paramKey: "signature"},
+		}
+
+		for _, field := range formFields {
+			var fieldValue string
+			switch field.key {
+			case "key":
+				fieldValue = objectKey
+			case "success_action_status":
+				fieldValue = "200"
+			default:
+				if field.paramKey != "" {
+					if val, ok := uploadParams[field.paramKey]; ok {
+						fieldValue = fmt.Sprintf("%v", val)
+					} else {
+						continue
+					}
+				}
+			}
+			if err := w.WriteField(field.key, fieldValue); err != nil {
+				c.Ctx.JSON(400, gin.H{
+					"error":   err.Error(),
+					"message": fmt.Sprintf("failed to write form field %s", field.key),
+				})
+				return
+			}
+		}
+
+		fw, err := w.CreateFormFile("file", objectKey)
+		if err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to create form file",
+			})
+			return
+		}
+		if _, err = io.Copy(fw, bytes.NewReader(fileContent)); err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to copy file content",
+			})
+			return
+		}
+		w.Close()
+
+		uploadReq, err := http.NewRequest("POST", uploadParams["host"].(string), &b)
+		if err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to create upload request",
+			})
+			return
+		}
+		uploadReq.Header.Set("Content-Type", w.FormDataContentType())
+
+		client := &http.Client{}
+		uploadResp, err := client.Do(uploadReq)
+		if err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to upload file",
+			})
+			return
+		}
+		defer uploadResp.Body.Close()
+
+		if uploadResp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(uploadResp.Body)
+			c.Ctx.JSON(400, gin.H{
+				"error":   fmt.Sprintf("upload failed with status %d: %s", uploadResp.StatusCode, string(respBody)),
+				"message": "file upload failed",
+			})
+			return
+		}
+
+		// 创建文件记录
+		fileService := c.Container.GetService("file").(base_services.InterfaceFileService)
+		if err := fileService.Create(fileForNotice); err != nil {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to create file record",
+			})
+			return
+		}
+	}
+
+	// 开始事务，创建通知并绑定到建筑物
+	tx := databases.DB_CONN.Begin()
+
+	// 创建通知
+	notice := &base_models.Notice{
+		Title:          form.Title,
+		Description:    form.Description,
+		Type:           form.Type,
+		Status:         status,
+		StartTime:      startTime,
+		EndTime:        endTime,
+		FileID:         &fileForNotice.ID,
+		IsPublic:       form.IsPublic,
+		IsIsmartNotice: true, // 强制设置为true
+		Priority:       0,
+		FileType:       fileType,
+		ReferenceID:    form.ReferenceID, // 添加可选的reference_id
+	}
+
+	if err := tx.Create(notice).Error; err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "create notice failed",
+		})
+		return
+	}
+
+	// 绑定通知到建筑物
+	if err := tx.Exec("INSERT INTO notice_buildings (notice_id, building_id) VALUES (?, ?)",
+		notice.ID, building.ID).Error; err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to bind notice to building",
+		})
+		return
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to commit transaction",
+		})
+		return
+	}
+
+	// 重新加载通知以获取关联的文件信息
+	if err := databases.DB_CONN.Preload("File").First(notice, notice.ID).Error; err != nil {
+		c.Ctx.JSON(200, gin.H{
+			"message": "create notice success, but failed to load file info",
+			"data":    notice,
+		})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{
+		"message": "sync create notice with file success",
+		"data": gin.H{
+			"notice":     notice,
+			"building":   building,
+			"fileReused": !shouldCreateFile,
+		},
+	})
+}
+
+// SyncDelete 同步删除通知
+// @Summary      同步删除通知
+// @Description  删除通知及其关联的文件，用于同步旧系统数据
+// @Tags         Notice
+// @Accept       json
+// @Produce      json
+// @Param        request body SyncDeleteNoticeRequest true "删除通知请求"
+// @Success      200  {object}  map[string]interface{} "删除成功信息"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Failure      404  {object}  map[string]interface{} "通知不存在"
+// @Router       /notice/sync/delete [post]
+func (c *NoticeController) SyncDelete() {
+	var form SyncDeleteNoticeRequest
+
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "invalid form",
+		})
+		return
+	}
+
+	// 开始事务
+	tx := databases.DB_CONN.Begin()
+
+	// 获取通知信息，包括文件ID
+	var notice base_models.Notice
+	if err := tx.First(&notice, form.ID).Error; err != nil {
+		tx.Rollback()
+		if err == gorm.ErrRecordNotFound {
+			c.Ctx.JSON(404, gin.H{
+				"error":   "notice not found",
+				"message": "notice does not exist",
+			})
+		} else {
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to get notice",
+			})
+		}
+		return
+	}
+
+	// 检查是否是iSmart通知
+	if !notice.IsIsmartNotice {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   "only iSmart notices can be sync deleted",
+			"message": "invalid notice type",
+		})
+		return
+	}
+
+	// 保存文件ID以便后续检查
+	fileID := notice.FileID
+
+	// 解绑所有关联的建筑物
+	if err := tx.Exec("DELETE FROM notice_buildings WHERE notice_id = ?", notice.ID).Error; err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to unbind notice from buildings",
+		})
+		return
+	}
+
+	// 删除通知
+	if err := tx.Delete(&notice).Error; err != nil {
+		tx.Rollback()
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to delete notice",
+		})
+		return
+	}
+
+	// 检查文件是否被其他通知使用
+	if fileID != nil {
+		var fileCount int64
+		if err := tx.Model(&base_models.Notice{}).Where("file_id = ?", *fileID).Count(&fileCount).Error; err != nil {
+			tx.Rollback()
+			c.Ctx.JSON(400, gin.H{
+				"error":   err.Error(),
+				"message": "failed to check file references",
+			})
+			return
+		}
+
+		if fileCount == 0 {
+			// 没有其他通知引用该文件，删除文件
+			if err := tx.Delete(&base_models.File{}, *fileID).Error; err != nil {
+				tx.Rollback()
+				c.Ctx.JSON(400, gin.H{
+					"error":   err.Error(),
+					"message": "failed to delete file",
+				})
+				return
+			}
+		}
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "failed to commit transaction",
+		})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{
+		"message": "sync delete notice success",
+		"data": gin.H{
+			"deletedNoticeID": form.ID,
+			"deletedFileID":   fileID,
+		},
 	})
 }

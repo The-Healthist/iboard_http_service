@@ -1,7 +1,7 @@
 services:
   backend:
-    image: stonesea/iboard_http_service:1.1.5
-    # build: .
+    # image: stonesea/iboard_http_service:1.1.6
+    build: .
     container_name: iboard_http_service
     restart: always
     ports:

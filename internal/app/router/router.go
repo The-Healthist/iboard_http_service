@@ -32,6 +32,10 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 	r.POST("/api/admin/login", http_base_controller.HandleFuncSuperAdmin(serviceContainer, "login"))
 	r.GET("/api/app/version", http_base_controller.HandleFuncApp(serviceContainer, "get"))
 
+	// Public notice sync endpoints - for old system integration
+	r.POST("/api/notice/sync/create", http_base_controller.HandleFuncNotice(serviceContainer, "syncCreateWithFile"))
+	r.POST("/api/notice/sync/delete", http_base_controller.HandleFuncNotice(serviceContainer, "syncDelete"))
+
 	// Upload routes - 移除JWT认证以支持OSS回调
 	r.POST("/api/admin/upload/params", http_base_controller.HandleFuncUpload(serviceContainer, "getUploadParams"))
 	r.POST("/api/admin/upload/callback", http_base_controller.HandleFuncUpload(serviceContainer, "uploadCallback"))
