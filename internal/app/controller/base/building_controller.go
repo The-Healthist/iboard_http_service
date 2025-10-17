@@ -297,31 +297,16 @@ func (c *BuildingController) Delete() {
 		return
 	}
 
-	// 2. collect all file ids of notices and advertisements
-	fileIDMap := make(map[uint]bool)
+	// 2. collect all notice and advertisement ids for unbinding
 	var noticeIDs []uint
 	var advertisementIDs []uint
 	for _, building := range buildings {
 		for _, notice := range building.Notices {
-			if notice.FileID != nil {
-				fileIDMap[*notice.FileID] = true
-			}
 			noticeIDs = append(noticeIDs, notice.ID)
 		}
 		for _, ad := range building.Advertisements {
-			if ad.FileID != nil {
-				fileIDMap[*ad.FileID] = true
-			}
 			advertisementIDs = append(advertisementIDs, ad.ID)
 		}
-	}
-
-	// convert map to slice
-	fileIDs := make([]uint, 0, len(fileIDMap))
-	for fileID := range fileIDMap {
-		// 解释: 这里将 fileIDMap 中的所有 key（即所有需要删除的文件ID）收集到 fileIDs 切片中，方便后续批量处理文件删除。
-		// 解决: 保持原有逻辑，确保 fileIDs 能正确收集所有相关文件ID。
-		fileIDs = append(fileIDs, fileID)
 	}
 
 	// 3. unbind notices

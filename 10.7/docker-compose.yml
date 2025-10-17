@@ -1,0 +1,73 @@
+services:
+  backend:
+    image: stonesea/iboard_http_service:1.1.6
+    container_name: iboard_http_service
+    restart: always
+    ports:
+      - "10031:10031"
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=1090119your
+      - DB_NAME=iboard_db
+      - DB_TIMEZONE=Asia/Shanghai
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - ACCESS_KEY_ID=${ACCESS_KEY_ID}
+      - ACCESS_KEY_SECRET=${ACCESS_KEY_SECRET}
+      - HOST=${HOST}
+      - CALLBACK_URL=${CALLBACK_URL}
+      - CALLBACK_URL_SYNC=${CALLBACK_URL_SYNC}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - iboard-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: iboard_mysql
+    restart: always
+    ports:
+      - "3308:3306"
+    environment:
+      - TZ=Asia/Shanghai
+      - MYSQL_ROOT_PASSWORD=1090119your
+      - MYSQL_DATABASE=iboard_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql_init:/docker-entrypoint-initdb.d
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - iboard-network
+
+  redis:
+    image: redis:7.4.1
+    container_name: iboard_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - redis_data:/data
+      - ./redis_config/redis.conf:/etc/redis/redis.conf
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    networks:
+      - iboard-network
+
+networks:
+  iboard-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    name: iboard_mysql_data
+  redis_data:
+    name: iboard_redis_data

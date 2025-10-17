@@ -1,8 +1,11 @@
 # Build code
-FROM golang:1.23.0-alpine AS build-stage
+FROM golang:1.23-alpine AS build-stage
 
 # 添加版本号作为构建参数
-ARG VERSION=1.1.6
+ARG VERSION=1.1.7
+
+# 配置 Alpine 镜像源（加速）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 ENV GO111MODULE=on
 ENV GOPROXY=https://goproxy.cn,direct
@@ -17,7 +20,7 @@ RUN go build -o main ./cmd/server
 LABEL version=$VERSION
 
 # Run release
-FROM alpine:3.14 AS release-stage
+FROM alpine:latest AS release-stage
 
 # 从构建阶段传递版本号
 ARG VERSION

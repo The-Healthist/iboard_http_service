@@ -765,7 +765,7 @@ func (s *NoticeSyncService) setSyncedNoticeMD5s(ctx context.Context, buildingID 
 }
 
 // validateFinalConsistency 验证最终数据一致性
-func (s *NoticeSyncService) validateFinalConsistency(ctx context.Context, buildingID uint, expectedCount int) error {
+func (s *NoticeSyncService) validateFinalConsistency(_ context.Context, buildingID uint, expectedCount int) error {
 	// 获取实际的 iSmart 通知数量
 	var actualCount int64
 	if err := s.db.Model(&base_models.Notice{}).

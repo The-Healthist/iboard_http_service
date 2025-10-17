@@ -143,6 +143,13 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		adminGroup.DELETE("/device", http_base_controller.HandleFuncDevice(serviceContainer, "delete"))
 		adminGroup.GET("/device/:id", http_base_controller.HandleFuncDevice(serviceContainer, "getOne"))
 
+		// Printer routes
+		adminGroup.POST("/printer", http_base_controller.HandleFuncPrinter(serviceContainer, "create"))
+		adminGroup.GET("/printer", http_base_controller.HandleFuncPrinter(serviceContainer, "get"))
+		adminGroup.PUT("/printer", http_base_controller.HandleFuncPrinter(serviceContainer, "update"))
+		adminGroup.DELETE("/printer", http_base_controller.HandleFuncPrinter(serviceContainer, "delete"))
+		adminGroup.GET("/printer/:id", http_base_controller.HandleFuncPrinter(serviceContainer, "getOne"))
+
 		// Device-Building relationship routes
 		adminGroup.POST("/device_building/bind", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "bindDevice"))
 		adminGroup.POST("/device_building/unbind", http_relationship_controller.HandleFuncDeviceBuilding(serviceContainer, "unbindDevice"))
@@ -200,6 +207,10 @@ func RegisterRoute(r *gin.Engine) *gin.Engine {
 		deviceClientGroup.GET("/carousel/top_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getTopAdCarouselResolved"))
 		deviceClientGroup.GET("/carousel/full_advertisements", http_base_controller.HandleFuncDevice(serviceContainer, "getFullAdCarouselResolved"))
 		deviceClientGroup.GET("/carousel/notices", http_base_controller.HandleFuncDevice(serviceContainer, "getNoticeCarouselResolved"))
+
+		// Printer routes
+		deviceClientGroup.POST("/printers/health", http_base_controller.HandleFuncDevice(serviceContainer, "printersHealthCheck"))
+		deviceClientGroup.POST("/printers/callback", http_base_controller.HandleFuncDevice(serviceContainer, "printersCallback"))
 	}
 
 	return r

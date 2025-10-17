@@ -23,6 +23,8 @@ type InterfaceDeviceController interface {
 	GetDeviceTopAdvertisements()
 	GetDeviceFullAdvertisements()
 	HealthTest()
+	PrintersHealthCheck()
+	PrintersCallback()
 }
 
 type DeviceController struct {
@@ -99,6 +101,16 @@ func HandleFuncDevice(container *container.ServiceContainer, method string) gin.
 		return func(ctx *gin.Context) {
 			controller := NewDeviceController(ctx, container)
 			controller.HealthTest()
+		}
+	case "printersHealthCheck":
+		return func(ctx *gin.Context) {
+			controller := NewDeviceController(ctx, container)
+			controller.PrintersHealthCheck()
+		}
+	case "printersCallback":
+		return func(ctx *gin.Context) {
+			controller := NewDeviceController(ctx, container)
+			controller.PrintersCallback()
 		}
 	case "getTopAdCarousel":
 		return func(ctx *gin.Context) { NewDeviceController(ctx, container).GetTopAdCarousel() }
@@ -1152,4 +1164,222 @@ func (c *DeviceController) GetNoticeCarouselResolved() {
 	}
 
 	c.Ctx.JSON(200, gin.H{"data": list, "message": "Get notices success"})
+}
+
+// PrintersHealthCheck 打印机健康检查接口
+// @Summary      打印机健康检查
+// @Description  设备客户端上报香橙派服务状态和打印机列表，系统会智能同步打印机数据
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        data body object true "打印机健康检查数据"
+// @Success      200  {object}  map[string]interface{} "健康检查成功响应"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/client/printers/health [post]
+// @Security     JWT
+func (c *DeviceController) PrintersHealthCheck() {
+	claims, exists := c.Ctx.Get("claims")
+	if !exists {
+		c.Ctx.JSON(401, gin.H{"error": "No token claims found"})
+		return
+	}
+
+	claimsMap, ok := claims.(map[string]interface{})
+	if !ok {
+		c.Ctx.JSON(401, gin.H{"error": "Invalid token claims format"})
+		return
+	}
+
+	deviceId, ok := claimsMap["deviceId"].(string)
+	if !ok {
+		c.Ctx.JSON(401, gin.H{"error": "Invalid device ID format"})
+		return
+	}
+
+	// 获取设备信息
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(deviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 解析请求数据
+	var form struct {
+		OrangePi struct {
+			IP           *string `json:"ip"`
+			Port         *int    `json:"port"`
+			Status       string  `json:"status" binding:"required"` // online, offline, not_configured
+			ResponseTime *int    `json:"response_time"`
+			Reason       *string `json:"reason"`
+			ErrorCode    *string `json:"error_code"`
+		} `json:"orange_pi" binding:"required"`
+		Printers []struct {
+			DisplayName *string `json:"display_name"`
+			IPAddress   *string `json:"ip_address"`
+			Name        *string `json:"name"`
+			State       *string `json:"state"`
+			URI         *string `json:"uri"`
+			Status      *string `json:"status"`
+			Reason      *string `json:"reason"`
+		} `json:"printers"`
+	}
+
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Invalid request format",
+		})
+		return
+	}
+
+	// 验证 orange_pi.status 的值
+	validStatuses := map[string]bool{"online": true, "offline": true, "not_configured": true}
+	if !validStatuses[form.OrangePi.Status] {
+		c.Ctx.JSON(400, gin.H{
+			"error":   "invalid_status",
+			"message": "orange_pi.status must be one of: online, offline, not_configured",
+		})
+		return
+	}
+
+	// 转换打印机数据为 interface{} 切片
+	printersInterface := make([]interface{}, len(form.Printers))
+	for i, p := range form.Printers {
+		printerMap := make(map[string]interface{})
+
+		if p.DisplayName != nil {
+			printerMap["display_name"] = *p.DisplayName
+		}
+		if p.IPAddress != nil {
+			printerMap["ip_address"] = *p.IPAddress
+		}
+		if p.Name != nil {
+			printerMap["name"] = *p.Name
+		}
+		if p.State != nil {
+			printerMap["state"] = *p.State
+		}
+		if p.URI != nil {
+			printerMap["uri"] = *p.URI
+		}
+		if p.Status != nil {
+			printerMap["status"] = *p.Status
+		}
+		if p.Reason != nil {
+			printerMap["reason"] = *p.Reason
+		}
+
+		printersInterface[i] = printerMap
+	}
+
+	// 调用 service 处理健康检查
+	result, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).HandlePrintersHealthCheck(
+		device.ID,
+		form.OrangePi.IP,
+		form.OrangePi.Port,
+		form.OrangePi.Status,
+		form.OrangePi.ResponseTime,
+		form.OrangePi.Reason,
+		form.OrangePi.ErrorCode,
+		printersInterface,
+	)
+
+	if err != nil {
+		c.Ctx.JSON(500, gin.H{
+			"success": false,
+			"error":   "Failed to process health check",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.Ctx.JSON(200, result)
+}
+
+// PrintersCallback 打印回调接口
+// @Summary      打印回调
+// @Description  设备客户端上报打印结果，包括成功或失败原因
+// @Tags         Device
+// @Accept       json
+// @Produce      json
+// @Param        data body object true "打印回调数据"
+// @Success      200  {object}  map[string]interface{} "打印回调成功响应"
+// @Failure      400  {object}  map[string]interface{} "错误信息"
+// @Router       /device/client/printers/callback [post]
+// @Security     JWT
+func (c *DeviceController) PrintersCallback() {
+	claims, exists := c.Ctx.Get("claims")
+	if !exists {
+		c.Ctx.JSON(401, gin.H{"error": "No token claims found"})
+		return
+	}
+
+	claimsMap, ok := claims.(map[string]interface{})
+	if !ok {
+		c.Ctx.JSON(401, gin.H{"error": "Invalid token claims format"})
+		return
+	}
+
+	deviceId, ok := claimsMap["deviceId"].(string)
+	if !ok {
+		c.Ctx.JSON(401, gin.H{"error": "Invalid device ID format"})
+		return
+	}
+
+	// 获取设备信息
+	device, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).GetByDeviceID(deviceId)
+	if err != nil {
+		c.Ctx.JSON(400, gin.H{"error": "Device not found"})
+		return
+	}
+
+	// 解析请求数据
+	var form struct {
+		Printers []struct {
+			DisplayName *string `json:"display_name"`
+			IPAddress   *string `json:"ip_address"`
+			Name        *string `json:"name"`
+			State       *string `json:"state"`
+			URI         *string `json:"uri"`
+			Status      *string `json:"status"` // print status: "online" (成功) or "offline" (失败)
+			Reason      *string `json:"reason"` // 如果打印失败，这里包含失败原因
+		} `json:"printers"`
+	}
+
+	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
+		c.Ctx.JSON(400, gin.H{
+			"error":   err.Error(),
+			"message": "Invalid request format",
+		})
+		return
+	}
+
+	// 转换为 Printer models
+	printers := make([]models.Printer, len(form.Printers))
+	for i, p := range form.Printers {
+		printers[i] = models.Printer{
+			DisplayName: p.DisplayName,
+			IPAddress:   p.IPAddress,
+			Name:        p.Name,
+			State:       p.State,
+			URI:         p.URI,
+			Status:      p.Status,
+			Reason:      p.Reason,
+		}
+	}
+
+	// 批量更新或创建打印机（记录打印结果）
+	if err := c.Container.GetService("printer").(base_services.InterfacePrinterService).BatchUpdateOrCreate(device.ID, printers); err != nil {
+		c.Ctx.JSON(500, gin.H{
+			"error":   "Failed to update printers callback",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.Ctx.JSON(200, gin.H{
+		"success": true,
+		"message": "Printers callback processed",
+		"count":   len(printers),
+	})
 }

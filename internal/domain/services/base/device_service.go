@@ -70,6 +70,8 @@ type InterfaceDeviceService interface {
 	GetFullAdCarouselResolved(deviceID uint) ([]models.Advertisement, error)
 	// 9.GetNoticeCarouselResolved 获取公告详细列表(按自定义顺序)
 	GetNoticeCarouselResolved(deviceID uint) ([]models.Notice, error)
+	// 10.HandlePrintersHealthCheck 处理打印机健康检查（v1.2.0）
+	HandlePrintersHealthCheck(deviceID uint, ip *string, port *int, status string, responseTime *int, reason *string, errorCode *string, printers []interface{}) (map[string]interface{}, error)
 }
 
 type DeviceService struct {
@@ -285,6 +287,15 @@ func (s *DeviceService) Get(query map[string]interface{}, paginate map[string]in
 		Limit(pageSize).Offset(offset).
 		Find(&devices).Error; err != nil {
 		return nil, models.PaginationResult{}, err
+	}
+
+	// 为每个设备加载打印机列表到 OrangePi.Printers
+	for i := range devices {
+		var printers []models.Printer
+		if err := s.db.Where("device_id = ?", devices[i].ID).Find(&printers).Error; err != nil {
+			return nil, models.PaginationResult{}, err
+		}
+		devices[i].OrangePi.Printers = printers
 	}
 
 	return devices, models.PaginationResult{
@@ -509,6 +520,13 @@ func (s *DeviceService) GetByID(id uint) (*models.Device, error) {
 		return nil, err
 	}
 
+	// 加载打印机信息并填充到 OrangePi.Printers
+	var printers []models.Printer
+	if err := s.db.Where("device_id = ?", id).Find(&printers).Error; err != nil {
+		return nil, err
+	}
+	device.OrangePi.Printers = printers
+
 	return &device, nil
 }
 
@@ -542,6 +560,13 @@ func (s *DeviceService) GetByDeviceID(deviceID string) (*models.Device, error) {
 	if err := s.db.Preload("Building").First(&device, device.ID).Error; err != nil {
 		return nil, err
 	}
+
+	// 加载打印机信息并填充到 OrangePi.Printers
+	var printers []models.Printer
+	if err := s.db.Where("device_id = ?", device.ID).Find(&printers).Error; err != nil {
+		return nil, err
+	}
+	device.OrangePi.Printers = printers
 
 	return &device, nil
 }
@@ -1163,4 +1188,282 @@ func (s *DeviceService) removeInvalidNoticesFromCarousel(deviceID uint, invalidI
 
 		return tx.Model(&models.Device{}).Where("id = ?", deviceID).Update("notice_carousel_list", newListBytes).Error
 	})
+}
+
+// HandlePrintersHealthCheck 处理打印机健康检查（v1.2.0）
+// 根据香橙派状态智能处理打印机同步逻辑
+func (s *DeviceService) HandlePrintersHealthCheck(
+	deviceID uint,
+	ip *string,
+	port *int,
+	status string,
+	responseTime *int,
+	reason *string,
+	errorCode *string,
+	printersData []interface{},
+) (map[string]interface{}, error) {
+	// 1. 更新设备的香橙派状态信息
+	updates := map[string]interface{}{
+		"orange_pi_status": status,
+	}
+
+	if ip != nil {
+		updates["orange_pi_ip"] = *ip
+	}
+	if port != nil {
+		updates["orange_pi_port"] = *port
+	}
+	if responseTime != nil {
+		updates["orange_pi_response_time"] = *responseTime
+	}
+	if reason != nil {
+		updates["orange_pi_reason"] = *reason
+	} else {
+		updates["orange_pi_reason"] = nil
+	}
+	if errorCode != nil {
+		updates["orange_pi_error_code"] = *errorCode
+	} else {
+		updates["orange_pi_error_code"] = nil
+	}
+
+	// 更新设备的香橙派状态
+	if err := s.db.Model(&models.Device{}).Where("id = ?", deviceID).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("failed to update orange pi status: %v", err)
+	}
+
+	// 2. 根据香橙派状态决定同步策略
+	var response map[string]interface{}
+
+	switch status {
+	case "online":
+		// 香橙派在线 - 执行完整的打印机同步
+		summary, err := s.syncPrintersFromHealthCheck(deviceID, printersData)
+		if err != nil {
+			return nil, err
+		}
+
+		response = map[string]interface{}{
+			"success":          true,
+			"message":          "Printers synchronized successfully",
+			"orange_pi_status": "online",
+			"summary":          summary,
+		}
+
+	case "offline":
+		// 香橙派离线 - 保持现有打印机数据不变
+		var totalCount int64
+		s.db.Model(&models.Printer{}).Where("device_id = ?", deviceID).Count(&totalCount)
+
+		response = map[string]interface{}{
+			"success":          true,
+			"message":          "Orange Pi service is offline, printer statuses preserved",
+			"orange_pi_status": "offline",
+			"summary": map[string]interface{}{
+				"added":     0,
+				"updated":   0,
+				"deleted":   0,
+				"unchanged": int(totalCount),
+				"total":     int(totalCount),
+			},
+			"note": "Existing printer records in database were not modified",
+		}
+		if reason != nil {
+			response["orange_pi_reason"] = *reason
+		}
+
+	case "not_configured":
+		// 香橙派未配置 - 不做任何操作
+		response = map[string]interface{}{
+			"success":          true,
+			"message":          "Orange Pi not configured, no printer sync performed",
+			"orange_pi_status": "not_configured",
+			"summary": map[string]interface{}{
+				"added":   0,
+				"updated": 0,
+				"deleted": 0,
+				"total":   0,
+			},
+		}
+		if reason != nil {
+			response["orange_pi_reason"] = *reason
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid orange pi status: %s", status)
+	}
+
+	return response, nil
+}
+
+// syncPrintersFromHealthCheck 从健康检查数据同步打印机列表
+func (s *DeviceService) syncPrintersFromHealthCheck(deviceID uint, printersData []interface{}) (map[string]interface{}, error) {
+	// 转换打印机数据
+	printers := make([]models.Printer, 0)
+	for _, p := range printersData {
+		printerMap, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		printer := models.Printer{}
+
+		if displayName, ok := printerMap["display_name"].(string); ok {
+			printer.DisplayName = &displayName
+		}
+		if ipAddress, ok := printerMap["ip_address"].(string); ok {
+			printer.IPAddress = &ipAddress
+		}
+		if name, ok := printerMap["name"].(string); ok {
+			printer.Name = &name
+		}
+		if state, ok := printerMap["state"].(string); ok {
+			printer.State = &state
+		}
+		if uri, ok := printerMap["uri"].(string); ok {
+			printer.URI = &uri
+		}
+		if status, ok := printerMap["status"].(string); ok {
+			printer.Status = &status
+		}
+		if reason, ok := printerMap["reason"].(string); ok {
+			printer.Reason = &reason
+		}
+
+		printers = append(printers, printer)
+	}
+
+	// 获取数据库中现有的打印机
+	var existingPrinters []models.Printer
+	if err := s.db.Where("device_id = ?", deviceID).Find(&existingPrinters).Error; err != nil {
+		return nil, fmt.Errorf("failed to get existing printers: %v", err)
+	}
+
+	// 统计信息
+	added := 0
+	updated := 0
+	deleted := 0
+	unchanged := 0
+	onlineCount := 0
+	offlineCount := 0
+
+	// 创建 IP 映射
+	existingMap := make(map[string]models.Printer)
+	for _, p := range existingPrinters {
+		if p.IPAddress != nil {
+			existingMap[*p.IPAddress] = p
+		}
+	}
+
+	newMap := make(map[string]bool)
+	for _, p := range printers {
+		if p.IPAddress != nil {
+			newMap[*p.IPAddress] = true
+		}
+	}
+
+	// 执行事务同步
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// 1. 删除不在新列表中的打印机
+		for ip, existing := range existingMap {
+			if !newMap[ip] {
+				if err := tx.Delete(&models.Printer{}, existing.ID).Error; err != nil {
+					return err
+				}
+				deleted++
+			}
+		}
+
+		// 2. 添加或更新打印机
+		for _, printer := range printers {
+			if printer.IPAddress == nil {
+				continue
+			}
+
+			printer.DeviceID = &deviceID
+
+			if existing, found := existingMap[*printer.IPAddress]; found {
+				// 检查是否有变化
+				hasChanges := false
+				updateFields := map[string]interface{}{}
+
+				if printer.DisplayName != nil && (existing.DisplayName == nil || *printer.DisplayName != *existing.DisplayName) {
+					updateFields["display_name"] = *printer.DisplayName
+					hasChanges = true
+				}
+				if printer.Name != nil && (existing.Name == nil || *printer.Name != *existing.Name) {
+					updateFields["name"] = *printer.Name
+					hasChanges = true
+				}
+				if printer.State != nil && (existing.State == nil || *printer.State != *existing.State) {
+					updateFields["state"] = *printer.State
+					hasChanges = true
+				}
+				if printer.URI != nil && (existing.URI == nil || *printer.URI != *existing.URI) {
+					updateFields["uri"] = *printer.URI
+					hasChanges = true
+				}
+				if printer.Status != nil && (existing.Status == nil || *printer.Status != *existing.Status) {
+					updateFields["status"] = *printer.Status
+					hasChanges = true
+				}
+				if printer.Reason != nil && (existing.Reason == nil || *printer.Reason != *existing.Reason) {
+					updateFields["reason"] = *printer.Reason
+					hasChanges = true
+				}
+
+				if hasChanges {
+					if err := tx.Model(&existing).Updates(updateFields).Error; err != nil {
+						return err
+					}
+					updated++
+				} else {
+					unchanged++
+				}
+			} else {
+				// 新增打印机
+				if err := tx.Create(&printer).Error; err != nil {
+					return err
+				}
+				added++
+			}
+
+			// 统计在线/离线状态
+			if printer.Status != nil {
+				if *printer.Status == "online" {
+					onlineCount++
+				} else {
+					offlineCount++
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取更新后的总数
+	var totalCount int64
+	s.db.Model(&models.Printer{}).Where("device_id = ?", deviceID).Count(&totalCount)
+
+	summary := map[string]interface{}{
+		"added":     added,
+		"updated":   updated,
+		"deleted":   deleted,
+		"unchanged": unchanged,
+		"total":     int(totalCount),
+	}
+
+	// 如果有打印机，添加状态统计
+	if len(printers) > 0 {
+		summary["printers_status"] = map[string]interface{}{
+			"online":  onlineCount,
+			"offline": offlineCount,
+		}
+	}
+
+	return summary, nil
 }

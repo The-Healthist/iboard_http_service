@@ -793,14 +793,15 @@ func (c *NoticeController) SyncCreateWithFile() {
 	var shouldCreateFile bool = true
 
 	err = databases.DB_CONN.Where("md5 = ?", md5Str).First(&existingFile).Error
-	if err == nil {
+	switch err {
+	case nil:
 		// 文件存在，但没有绑定到该建筑物，可以重用
 		fileForNotice = &existingFile
 		shouldCreateFile = false
-	} else if err == gorm.ErrRecordNotFound {
+	case gorm.ErrRecordNotFound:
 		// 文件不存在，需要创建
 		shouldCreateFile = true
-	} else {
+	default:
 		c.Ctx.JSON(400, gin.H{
 			"error":   err.Error(),
 			"message": "failed to check existing file",
