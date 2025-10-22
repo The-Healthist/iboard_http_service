@@ -30,4 +30,5 @@ alwaysApply: true
 
   Always prioritize security, scalability, and maintainability in your API designs and implementations. Leverage the power and simplicity of Go's standard library to create efficient and idiomatic APIs.
   总是使用中文回复我.
+  不要为我创建脚本,给我依次执行的命令行就行.
   

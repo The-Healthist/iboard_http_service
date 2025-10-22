@@ -152,6 +152,9 @@ func (s *PrinterService) BatchUpdateOrCreate(deviceID uint, printers []models.Pr
 				if printer.Reason != nil {
 					updates["reason"] = printer.Reason
 				}
+				if printer.MarkerLevels != nil {
+					updates["marker_levels"] = printer.MarkerLevels
+				}
 
 				if err := tx.Model(&existing).Updates(updates).Error; err != nil {
 					return err
@@ -231,6 +234,9 @@ func (s *PrinterService) SyncPrinters(deviceID uint, printers []models.Printer) 
 				}
 				if printer.Reason != nil {
 					updates["reason"] = printer.Reason
+				}
+				if printer.MarkerLevels != nil {
+					updates["marker_levels"] = printer.MarkerLevels
 				}
 
 				if err := tx.Model(&existing).Updates(updates).Error; err != nil {

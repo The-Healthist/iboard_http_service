@@ -34,7 +34,8 @@
       "name": "HP_Printer_139",       // 可选，CUPS打印机名称
       "state": "idle",                // 可选，打印机状态: idle, processing, stopped
       "uri": "ipp://192.168.50.139:631/ipp/print", // 可选，打印机URI
-      "reason": ""                    // 可选，离线原因
+      "reason": "",                   // 可选，离线原因
+      "marker_levels": "30,20"        // 可选，墨盒墨水量，格式如 "30,20"，可为空
     }
   ]
 }
@@ -104,17 +105,32 @@
 - **URL**: `/api/device/client/printers/callback`
 - **方法**: `POST`
 - **认证**: Device JWT Token
-- **功能**: 打印任务完成后上报结果，只更新状态，不新增/删除
+- **功能**: 打印任务完成后上报香橙派状态和打印机结果，更新设备和打印机状态
 
 ### 请求参数
 
+**说明**: 请求参数与健康检查接口完全相同，便于客户端统一处理。
+
 ```json
 {
+  "orange_pi": {
+    "ip": "192.168.50.173",           // 必填（status为online/offline时）
+    "port": 8080,                     // 必填（status为online/offline时）
+    "status": "online",               // 必填，可选值: online, offline, not_configured
+    "response_time": 45,              // 可选，响应时间（毫秒）
+    "reason": "",                     // 可选，离线原因
+    "error_code": ""                  // 可选，错误代码
+  },
   "printers": [
     {
-      "ip_address": "192.168.50.139",  // 必填，打印机IP
-      "status": "online",              // 必填，可选值: online, offline
-      "reason": ""                     // 可选，失败原因
+      "ip_address": "192.168.50.139", // 必填，打印机IP，唯一标识
+      "status": "online",             // 必填，可选值: online, offline
+      "display_name": "HP LaserJet",  // 可选，显示名称
+      "name": "HP_Printer_139",       // 可选，CUPS打印机名称
+      "state": "idle",                // 可选，打印机状态: idle, processing, stopped
+      "uri": "ipp://192.168.50.139:631/ipp/print", // 可选，打印机URI
+      "reason": "",                   // 可选，离线原因
+      "marker_levels": "30,20"        // 可选，墨盒墨水量，格式如 "30,20"，可为空
     }
   ]
 }
@@ -125,11 +141,10 @@
 ```json
 {
   "success": true,
-  "message": "Printer statuses updated successfully",
+  "message": "Printers callback processed successfully",
+  "orange_pi_status": "online",
   "summary": {
-    "updated": 2,
-    "notFound": 0,
-    "errors": 0
+    "updated": 2
   }
 }
 ```
@@ -174,7 +189,8 @@
           "state": "idle",
           "uri": "ipp://192.168.50.139:631/ipp/print",
           "status": "online",
-          "reason": ""
+          "reason": "",
+          "marker_levels": "85,75"
         },
         {
           "id": 6,
@@ -185,7 +201,8 @@
           "state": "idle",
           "uri": "ipp://192.168.50.146:631/ipp/print",
           "status": "offline",
-          "reason": "media-empty-report"
+          "reason": "media-empty-report",
+          "marker_levels": "30,20"
         }
       ]
     },
@@ -201,66 +218,3 @@
 ```
 
 ---
-
-## 错误响应
-
-### 401 - 未授权
-```json
-{
-  "error": "unauthorized",
-  "message": "no token found"
-}
-```
-
-### 400 - 请求参数错误
-```json
-{
-  "error": "invalid_request",
-  "message": "orange_pi field is required"
-}
-```
-
-### 422 - 验证错误
-```json
-{
-  "error": "invalid_status",
-  "message": "orange_pi.status must be one of: online, offline, not_configured"
-}
-```
-
----
-
-## 字段说明
-
-### OrangePi 状态枚举
-- `online`: 香橙派服务在线
-- `offline`: 香橙派服务离线
-- `not_configured`: 香橙派未配置
-
-### 打印机状态枚举
-- `online`: 打印机在线可用
-- `offline`: 打印机离线或故障
-
-### 打印机 State 枚举
-- `idle`: 空闲
-- `processing`: 处理中
-- `stopped`: 已停止
-
-### 常见错误代码
-| 错误代码 | 说明 |
-|---------|------|
-| `CONNECTION_TIMEOUT` | 连接超时 |
-| `CONNECTION_REFUSED` | 连接被拒绝 |
-| `NETWORK_UNREACHABLE` | 网络不可达 |
-| `SERVICE_UNAVAILABLE` | 服务不可用 |
-
-### 常见打印机离线原因
-| Reason | 说明 |
-|--------|------|
-| `media-empty-report` | 纸张可能为空 |
-| `media-empty` | 纸张已用完 |
-| `media-jam` | 打印机卡纸 |
-| `marker-supply-low` | 墨盒/碳粉不足 |
-| `marker-supply-empty` | 墨盒/碳粉已用完 |
-| `door-open` | 打印机门未关闭 |
-| `offline` | 打印机离线 |

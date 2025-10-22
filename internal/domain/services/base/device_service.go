@@ -1329,6 +1329,9 @@ func (s *DeviceService) syncPrintersFromHealthCheck(deviceID uint, printersData 
 		if reason, ok := printerMap["reason"].(string); ok {
 			printer.Reason = &reason
 		}
+		if markerLevels, ok := printerMap["marker_levels"].(string); ok {
+			printer.MarkerLevels = &markerLevels
+		}
 
 		printers = append(printers, printer)
 	}
@@ -1409,6 +1412,10 @@ func (s *DeviceService) syncPrintersFromHealthCheck(deviceID uint, printersData 
 				}
 				if printer.Reason != nil && (existing.Reason == nil || *printer.Reason != *existing.Reason) {
 					updateFields["reason"] = *printer.Reason
+					hasChanges = true
+				}
+				if printer.MarkerLevels != nil && (existing.MarkerLevels == nil || *printer.MarkerLevels != *existing.MarkerLevels) {
+					updateFields["marker_levels"] = *printer.MarkerLevels
 					hasChanges = true
 				}
 

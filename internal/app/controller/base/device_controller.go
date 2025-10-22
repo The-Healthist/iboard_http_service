@@ -1214,13 +1214,14 @@ func (c *DeviceController) PrintersHealthCheck() {
 			ErrorCode    *string `json:"error_code"`
 		} `json:"orange_pi" binding:"required"`
 		Printers []struct {
-			DisplayName *string `json:"display_name"`
-			IPAddress   *string `json:"ip_address"`
-			Name        *string `json:"name"`
-			State       *string `json:"state"`
-			URI         *string `json:"uri"`
-			Status      *string `json:"status"`
-			Reason      *string `json:"reason"`
+			DisplayName  *string `json:"display_name"`
+			IPAddress    *string `json:"ip_address"`
+			Name         *string `json:"name"`
+			State        *string `json:"state"`
+			URI          *string `json:"uri"`
+			Status       *string `json:"status"`
+			Reason       *string `json:"reason"`
+			MarkerLevels *string `json:"marker_levels"` // 新增：墨盒墨水量信息
 		} `json:"printers"`
 	}
 
@@ -1268,6 +1269,9 @@ func (c *DeviceController) PrintersHealthCheck() {
 		if p.Reason != nil {
 			printerMap["reason"] = *p.Reason
 		}
+		if p.MarkerLevels != nil {
+			printerMap["marker_levels"] = *p.MarkerLevels
+		}
 
 		printersInterface[i] = printerMap
 	}
@@ -1298,7 +1302,7 @@ func (c *DeviceController) PrintersHealthCheck() {
 
 // PrintersCallback 打印回调接口
 // @Summary      打印回调
-// @Description  设备客户端上报打印结果，包括成功或失败原因
+// @Description  设备客户端上报打印结果和香橙派状态，包括成功或失败原因
 // @Tags         Device
 // @Accept       json
 // @Produce      json
@@ -1333,16 +1337,25 @@ func (c *DeviceController) PrintersCallback() {
 		return
 	}
 
-	// 解析请求数据
+	// 解析请求数据（与健康检查接口相同的结构）
 	var form struct {
+		OrangePi struct {
+			IP           *string `json:"ip"`
+			Port         *int    `json:"port"`
+			Status       string  `json:"status" binding:"required"` // online, offline, not_configured
+			ResponseTime *int    `json:"response_time"`
+			Reason       *string `json:"reason"`
+			ErrorCode    *string `json:"error_code"`
+		} `json:"orange_pi" binding:"required"`
 		Printers []struct {
-			DisplayName *string `json:"display_name"`
-			IPAddress   *string `json:"ip_address"`
-			Name        *string `json:"name"`
-			State       *string `json:"state"`
-			URI         *string `json:"uri"`
-			Status      *string `json:"status"` // print status: "online" (成功) or "offline" (失败)
-			Reason      *string `json:"reason"` // 如果打印失败，这里包含失败原因
+			DisplayName  *string `json:"display_name"`
+			IPAddress    *string `json:"ip_address"`
+			Name         *string `json:"name"`
+			State        *string `json:"state"`
+			URI          *string `json:"uri"`
+			Status       *string `json:"status"`
+			Reason       *string `json:"reason"`
+			MarkerLevels *string `json:"marker_levels"`
 		} `json:"printers"`
 	}
 
@@ -1354,17 +1367,57 @@ func (c *DeviceController) PrintersCallback() {
 		return
 	}
 
+	// 验证 orange_pi.status 的值
+	validStatuses := map[string]bool{"online": true, "offline": true, "not_configured": true}
+	if !validStatuses[form.OrangePi.Status] {
+		c.Ctx.JSON(400, gin.H{
+			"error":   "invalid_status",
+			"message": "orange_pi.status must be one of: online, offline, not_configured",
+		})
+		return
+	}
+
+	// 更新香橙派信息
+	orangePiUpdates := map[string]interface{}{
+		"orange_pi_status": form.OrangePi.Status,
+	}
+	if form.OrangePi.IP != nil {
+		orangePiUpdates["orange_pi_ip"] = *form.OrangePi.IP
+	}
+	if form.OrangePi.Port != nil {
+		orangePiUpdates["orange_pi_port"] = *form.OrangePi.Port
+	}
+	if form.OrangePi.ResponseTime != nil {
+		orangePiUpdates["orange_pi_response_time"] = *form.OrangePi.ResponseTime
+	}
+	if form.OrangePi.Reason != nil {
+		orangePiUpdates["orange_pi_reason"] = *form.OrangePi.Reason
+	}
+	if form.OrangePi.ErrorCode != nil {
+		orangePiUpdates["orange_pi_error_code"] = *form.OrangePi.ErrorCode
+	}
+
+	// 更新设备的香橙派信息
+	if _, err := c.Container.GetService("device").(base_services.InterfaceDeviceService).Update(device.ID, orangePiUpdates); err != nil {
+		c.Ctx.JSON(500, gin.H{
+			"error":   "Failed to update OrangePi info",
+			"message": err.Error(),
+		})
+		return
+	}
+
 	// 转换为 Printer models
 	printers := make([]models.Printer, len(form.Printers))
 	for i, p := range form.Printers {
 		printers[i] = models.Printer{
-			DisplayName: p.DisplayName,
-			IPAddress:   p.IPAddress,
-			Name:        p.Name,
-			State:       p.State,
-			URI:         p.URI,
-			Status:      p.Status,
-			Reason:      p.Reason,
+			DisplayName:  p.DisplayName,
+			IPAddress:    p.IPAddress,
+			Name:         p.Name,
+			State:        p.State,
+			URI:          p.URI,
+			Status:       p.Status,
+			Reason:       p.Reason,
+			MarkerLevels: p.MarkerLevels,
 		}
 	}
 
@@ -1378,8 +1431,11 @@ func (c *DeviceController) PrintersCallback() {
 	}
 
 	c.Ctx.JSON(200, gin.H{
-		"success": true,
-		"message": "Printers callback processed",
-		"count":   len(printers),
+		"success":          true,
+		"message":          "Printers callback processed successfully",
+		"orange_pi_status": form.OrangePi.Status,
+		"summary": gin.H{
+			"updated": len(printers),
+		},
 	})
 }

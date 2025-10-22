@@ -2,7 +2,7 @@
 FROM golang:1.23-alpine AS build-stage
 
 # 添加版本号作为构建参数
-ARG VERSION=1.1.7
+ARG VERSION=1.1.8
 
 # 配置 Alpine 镜像源（加速）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories

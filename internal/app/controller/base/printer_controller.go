@@ -68,14 +68,15 @@ func HandleFuncPrinter(container *container.ServiceContainer, method string) gin
 // Create 创建打印机
 func (c *PrinterController) Create() {
 	var form struct {
-		DeviceID    *uint   `json:"deviceId"`
-		DisplayName *string `json:"display_name"`
-		IPAddress   *string `json:"ip_address"`
-		Name        *string `json:"name"`
-		State       *string `json:"state"`
-		URI         *string `json:"uri"`
-		Status      *string `json:"status"`
-		Reason      *string `json:"reason"`
+		DeviceID     *uint   `json:"deviceId"`
+		DisplayName  *string `json:"display_name"`
+		IPAddress    *string `json:"ip_address"`
+		Name         *string `json:"name"`
+		State        *string `json:"state"`
+		URI          *string `json:"uri"`
+		Status       *string `json:"status"`
+		Reason       *string `json:"reason"`
+		MarkerLevels *string `json:"marker_levels"` // 新增：墨盒墨水量
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -87,14 +88,15 @@ func (c *PrinterController) Create() {
 	}
 
 	printer := &models.Printer{
-		DeviceID:    form.DeviceID,
-		DisplayName: form.DisplayName,
-		IPAddress:   form.IPAddress,
-		Name:        form.Name,
-		State:       form.State,
-		URI:         form.URI,
-		Status:      form.Status,
-		Reason:      form.Reason,
+		DeviceID:     form.DeviceID,
+		DisplayName:  form.DisplayName,
+		IPAddress:    form.IPAddress,
+		Name:         form.Name,
+		State:        form.State,
+		URI:          form.URI,
+		Status:       form.Status,
+		Reason:       form.Reason,
+		MarkerLevels: form.MarkerLevels, // 新增：墨盒墨水量
 	}
 
 	if err := c.Container.GetService("printer").(base_services.InterfacePrinterService).Create(printer); err != nil {
@@ -158,15 +160,16 @@ func (c *PrinterController) Get() {
 // Update 更新打印机
 func (c *PrinterController) Update() {
 	var form struct {
-		ID          uint    `json:"id" binding:"required"`
-		DeviceID    *uint   `json:"deviceId"`
-		DisplayName *string `json:"display_name"`
-		IPAddress   *string `json:"ip_address"`
-		Name        *string `json:"name"`
-		State       *string `json:"state"`
-		URI         *string `json:"uri"`
-		Status      *string `json:"status"`
-		Reason      *string `json:"reason"`
+		ID           uint    `json:"id" binding:"required"`
+		DeviceID     *uint   `json:"deviceId"`
+		DisplayName  *string `json:"display_name"`
+		IPAddress    *string `json:"ip_address"`
+		Name         *string `json:"name"`
+		State        *string `json:"state"`
+		URI          *string `json:"uri"`
+		Status       *string `json:"status"`
+		Reason       *string `json:"reason"`
+		MarkerLevels *string `json:"marker_levels"` // 新增：墨盒墨水量
 	}
 
 	if err := c.Ctx.ShouldBindJSON(&form); err != nil {
@@ -198,6 +201,9 @@ func (c *PrinterController) Update() {
 	}
 	if form.Reason != nil {
 		updates["reason"] = form.Reason
+	}
+	if form.MarkerLevels != nil {
+		updates["marker_levels"] = form.MarkerLevels
 	}
 
 	updatedPrinter, err := c.Container.GetService("printer").(base_services.InterfacePrinterService).Update(form.ID, updates)
